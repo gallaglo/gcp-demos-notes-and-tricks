@@ -1,0 +1,10 @@
+#!/bin/bash
+apt update
+apt -y install apache2
+metadata_url="http://metadata.google.internal/computeMetadata/v1/instance"
+request_header="Metadata-Flavor: Google"
+name=$(curl -s "${metadata_url}/name" -H "${request_header}" )
+zone=$(curl -s "${metadata_url}/zone" -H "${request_header}" )
+cat <<EOF > /var/www/html/index.html
+<html><body><h1>Hello from ${zone}!</h1><p>I am ${name}.</p></body></html>
+EOF
