@@ -13,7 +13,7 @@ data "google_compute_subnetwork" "default" {
 }
 
 data "template_file" "startup-script" {
-  template = file("../vm-instance/startup-script.sh.tpl")
+  template = file(format("%s/startup-script.sh.tpl", path.module))
 }
 
 module "instance_template" {
@@ -44,8 +44,6 @@ module "mig" {
     name = "http",
     port = 80
   }]
-  network    = data.google_compute_network.default.self_link
-  subnetwork = data.google_compute_subnetwork.default.self_link
 }
 
 module "gce-lb-http" {

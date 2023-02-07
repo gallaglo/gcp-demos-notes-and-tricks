@@ -7,7 +7,7 @@
 
 ## Create a Managed Instance Group (MIG)
 
-* [Create a new instance template](https://cloud.google.com/compute/docs/instance-templates/create-instance-templates#create_a_new_instance_template) with a similar configuration as the single instance provisioned earlier. During setup, navigate to "Advanced options" > "Management" to paste the contents of [startup-script](https://github.com/gallaglo/gcp-demos-notes-and-tricks/vm-instance/startup-script) into the "Automantion" form field.
+* [Create a new instance template](https://cloud.google.com/compute/docs/instance-templates/create-instance-templates#create_a_new_instance_template) with a similar configuration as the single instance provisioned earlier. During setup, navigate to "Advanced options" > "Management" to paste the contents of [startup-script](https://github.com/gallaglo/gcp-demos-notes-and-tricks/terraform/startup-script.sh.tpl) into the "Automantion" form field.
 * [Create a MIG with VMs in multiple zones in a region](https://cloud.google.com/compute/docs/instance-groups/distributing-instances-with-regional-instance-groups#creating_a_regional_managed_instance_group), selecting the Instance Template created in the prior step.
 
 ## Put a HTTP load balancer in front of the MIG
