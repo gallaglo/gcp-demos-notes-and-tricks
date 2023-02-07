@@ -12,9 +12,9 @@ data "google_compute_subnetwork" "default" {
   region = var.region
 }
 
-data "template_file" "startup-script" {
-  template = file(format("%s/startup-script.sh.tpl", path.module))
-}
+# data "template_file" "startup-script" {
+#   template = file(format("%s/startup-script.sh.tpl", path.module))
+# }
 
 module "instance_template" {
   source       = "terraform-google-modules/vm/google//modules/instance_template"
@@ -29,7 +29,7 @@ module "instance_template" {
   }
   source_image_family  = var.source_image_family
   source_image_project = var.source_image_project
-  startup_script       = data.template_file.startup-script.rendered
+  startup_script       = file("${path.module}/startup-script")
   tags                 = []
 }
 
