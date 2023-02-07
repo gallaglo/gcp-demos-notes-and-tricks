@@ -2,7 +2,7 @@
 
 ## Create a VM instance in the Console with a startup script
 
-* Provision a new VM instance in the GCE console by selecting "Create Instance". In the setup wizard navigate to "Advanced options" > "Management" and paste the contents of [startup-script](https://github.com/gallaglo/gcp-demos-notes-and-tricks/vm-instance/startup-script) into the "Automantion" form field.
+* Provision a new VM instance in the GCE console by selecting "Create Instance". In the setup wizard navigate to "Advanced options" > "Management" and paste the contents of [startup-script](https://github.com/gallaglo/gcp-demos-notes-and-tricks/terraform/startup-script) into the "Automantion" form field.
 * For additional info or context see: [Passing a Linux startup script directly](https://cloud.google.com/compute/docs/instances/startup-scripts/linux).
 
 ## Create a Managed Instance Group (MIG)

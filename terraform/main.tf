@@ -12,17 +12,14 @@ data "google_compute_subnetwork" "default" {
   region = var.region
 }
 
-# data "template_file" "startup-script" {
-#   template = file(format("%s/startup-script.sh.tpl", path.module))
-# }
-
 module "instance_template" {
-  source       = "terraform-google-modules/vm/google//modules/instance_template"
-  version      = "8.0.0"
-  name_prefix  = "webserver-template"
-  machine_type = var.machine_type
-  network      = data.google_compute_network.default.self_link
-  subnetwork   = data.google_compute_subnetwork.default.self_link
+  source        = "terraform-google-modules/vm/google//modules/instance_template"
+  version       = "8.0.0"
+  access_config = [{}]
+  name_prefix   = "webserver-template"
+  machine_type  = var.machine_type
+  network       = data.google_compute_network.default.self_link
+  subnetwork    = data.google_compute_subnetwork.default.self_link
   service_account = {
     email  = ""
     scopes = ["cloud-platform"]
