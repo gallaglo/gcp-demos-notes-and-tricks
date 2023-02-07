@@ -45,9 +45,15 @@ module "mig" {
     port = 80
   }]
   update_policy = [{
-    type            = "PROACTIVE"
-    minimal_action  = "REPLACE"
-    max_surge_fixed = 4
+    type                         = "PROACTIVE"
+    minimal_action               = "REPLACE"
+    max_surge_fixed              = 4
+    instance_redistribution_type = null
+    max_surge_percent            = null
+    max_unavailable_fixed        = null
+    max_unavailable_percent      = null
+    min_ready_sec                = null
+    replacement_method           = null
   }]
 }
 
