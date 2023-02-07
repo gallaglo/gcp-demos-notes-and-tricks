@@ -12,4 +12,4 @@ By default, the resources are deployed into the us-west1 region (Oregon) in the 
 | project_id | The GCP project to use for integration tests | `string` | n/a | yes |
 | region | The GCP region to create and test resources in | `string` | `"us-west1"` | no |
 | source_image_family | Source image family | `string` | `"debian-11"` | no |
-| source_image_project |Project where the source image comes from | `string` | `"debian-cloud"` |
+| source_image_project |Project where the source image comes from | `string` | `"debian-cloud"` | no |
