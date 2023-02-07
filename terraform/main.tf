@@ -44,6 +44,11 @@ module "mig" {
     name = "http",
     port = 80
   }]
+  update_policy = [{
+    type            = "PROACTIVE"
+    minimal_action  = "REPLACE"
+    max_surge_fixed = 4
+  }]
 }
 
 module "gce-lb-http" {
