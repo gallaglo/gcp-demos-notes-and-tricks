@@ -1,6 +1,9 @@
-# Advanced BigQuery Demo
+# Advanced BigQuery Demos
 
-Wikipedia Pageviews demo that shows off INFORMATION_SCHEMA, ROLLUP, and the new Chart preview.
+
+## Wikipedia Pageviews demo
+
+Shows off INFORMATION_SCHEMA, ROLLUP, and the new Chart preview.
 
 ```sql
 -- Use INFORMATION_SCHEMA and ROLLUP to compute total rows and bytes
@@ -41,4 +44,21 @@ LIMIT
 -- After running the query:
 -- Go to Job Information to show actual bytes processed due to clustering (only 257 GB)
 -- Show the results using the new Chart (Preview). Change the dimension dropdown to year_viewed.
+```
+
+## SF Bikeshare demo
+
+```sql
+SELECT
+  start_station_name,
+  COUNT(trip_id) AS num_trips
+FROM
+  `bigquery-public-data.san_francisco_bikeshare.bikeshare_trips`
+WHERE start_date > '2017-12-31 00:00:00 UTC'
+GROUP BY
+  start_station_name
+ORDER BY
+  num_trips DESC
+LIMIT
+  10
 ```
