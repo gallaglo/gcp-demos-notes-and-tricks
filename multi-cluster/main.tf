@@ -29,7 +29,7 @@ module "project-services" {
 resource "google_container_cluster" "cluster_1" {
   depends_on          = [module.project-services]
   name                = "${var.region_1}-gke-cluster"
-  location            = "${var.region_1}-a"
+  location            = "${var.region_1}-b"
   project             = var.project_id
   initial_node_count  = 3
   deletion_protection = false
@@ -60,7 +60,7 @@ resource "google_container_cluster" "cluster_1" {
 resource "google_container_cluster" "cluster_2" {
   depends_on          = [module.project-services]
   name                = "${var.region_2}-gke-cluster"
-  location            = "${var.region_2}-a"
+  location            = "${var.region_2}-b"
   project             = var.project_id
   initial_node_count  = 3
   deletion_protection = false
@@ -107,7 +107,7 @@ resource "google_project_iam_binding" "network_viewer" {
 # Enable multi-cluster Gateway and specify the region_1 cluster as the config cluster in your fleet
 resource "google_gke_hub_feature" "ingress" {
   name     = "multiclusteringress"
-  location = var.region_1
+  location = "global"
   spec {
     multiclusteringress {
       config_membership = google_container_cluster.cluster_1.fleet.0.membership
