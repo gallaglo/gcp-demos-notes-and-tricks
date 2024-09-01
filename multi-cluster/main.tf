@@ -15,6 +15,7 @@ module "project-services" {
   disable_services_on_destroy = false
 
   activate_apis = [
+    "cloudresourcemanager.googleapis.com",
     "compute.googleapis.com",
     "iam.googleapis.com",
     "container.googleapis.com",
@@ -26,6 +27,7 @@ module "project-services" {
 }
 
 resource "google_container_cluster" "cluster_1" {
+  depends_on          = [module.project-services]
   name                = "${var.region_1}-gke-cluster"
   location            = "${var.region_1}-a"
   project             = var.project_id
@@ -56,8 +58,9 @@ resource "google_container_cluster" "cluster_1" {
 }
 
 resource "google_container_cluster" "cluster_2" {
-  name                = "${var.region_1}-gke-cluster"
-  location            = "${var.region_1}-a"
+  depends_on          = [module.project-services]
+  name                = "${var.region_2}-gke-cluster"
+  location            = "${var.region_2}-a"
   project             = var.project_id
   initial_node_count  = 3
   deletion_protection = false
