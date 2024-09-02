@@ -26,41 +26,13 @@ module "project-services" {
   ]
 }
 
-resource "google_container_cluster" "cluster_1" {
-  depends_on          = [module.project-services]
-  name                = "${var.region_1}-gke-cluster"
-  location            = "${var.region_1}-b"
-  project             = var.project_id
-  initial_node_count  = 3
-  deletion_protection = false
-  cluster_autoscaling {
-    enabled = true
-    resource_limits {
-      resource_type = "cpu"
-      minimum       = 1
-      maximum       = 12
-    }
-    resource_limits {
-      resource_type = "memory"
-      minimum       = 1
-      maximum       = 64
-    }
-  }
-  fleet {
-    project = var.project_id
-  }
-  gateway_api_config {
-    channel = "CHANNEL_STANDARD"
-  }
-  workload_identity_config {
-    workload_pool = "${var.project_id}.svc.id.goog"
-  }
-}
+# Create two GKE clusters in different regions
+resource "google_container_cluster" "default" {
+  depends_on = [module.project-services]
+  for_each   = toset([var.region_1, var.region_2])
 
-resource "google_container_cluster" "cluster_2" {
-  depends_on          = [module.project-services]
-  name                = "${var.region_2}-gke-cluster"
-  location            = "${var.region_2}-b"
+  name                = "${each.key}-cluster"
+  location            = "${each.key}-b"
   project             = var.project_id
   initial_node_count  = 3
   deletion_protection = false
@@ -106,12 +78,12 @@ resource "google_project_iam_binding" "network_viewer" {
 
 # Enable multi-cluster Gateway and specify the region_1 cluster as the config cluster in your fleet
 resource "google_gke_hub_feature" "ingress" {
-  #  depends_on = [google_container_cluster.cluster_1]
-  name     = "multiclusteringress"
-  location = "global"
+  depends_on = [google_container_cluster.default[var.region_1]]
+  name       = "multiclusteringress"
+  location   = "global"
   spec {
     multiclusteringress {
-      config_membership = "projects/${var.project_id}/locations/${var.region_1}/memberships/${google_container_cluster.cluster_1.fleet.0.membership_id}"
+      config_membership = "projects/${var.project_id}/locations/${var.region_1}/memberships/${google_container_cluster.default[var.region_1].fleet.0.membership_id}"
     }
   }
 }
