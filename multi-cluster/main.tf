@@ -106,11 +106,12 @@ resource "google_project_iam_binding" "network_viewer" {
 
 # Enable multi-cluster Gateway and specify the region_1 cluster as the config cluster in your fleet
 resource "google_gke_hub_feature" "ingress" {
+  #  depends_on = [google_container_cluster.cluster_1]
   name     = "multiclusteringress"
   location = "global"
   spec {
     multiclusteringress {
-      config_membership = google_container_cluster.cluster_1.fleet.0.membership_id
+      config_membership = "projects/${var.project_id}/locations/${var.region_1}/memberships/${google_container_cluster.cluster_1.fleet.0.membership_id}"
     }
   }
 }
