@@ -110,7 +110,7 @@ resource "google_gke_hub_feature" "ingress" {
   location = "global"
   spec {
     multiclusteringress {
-      config_membership = google_container_cluster.cluster_1.fleet.0.membership
+      config_membership = google_container_cluster.cluster_1.fleet.0.membership_id
     }
   }
 }
