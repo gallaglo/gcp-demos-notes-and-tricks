@@ -58,12 +58,13 @@ module "mig" {
 }
 
 module "gce-lb-http" {
-  source            = "GoogleCloudPlatform/lb-http/google"
-  version           = "7.0.0"
-  name              = "webserver-http-lb"
-  project           = var.project_id
-  target_tags       = []
-  firewall_networks = [data.google_compute_network.default.name]
+  source                = "GoogleCloudPlatform/lb-http/google"
+  version               = "~> 7.0.0"
+  name                  = "webserver"
+  project               = var.project_id
+  load_balancing_scheme = "EXTERNAL_MANAGED"
+  target_tags           = []
+  firewall_networks     = [data.google_compute_network.default.name]
 
 
   backends = {
