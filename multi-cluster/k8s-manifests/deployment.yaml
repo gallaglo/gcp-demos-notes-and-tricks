@@ -1,0 +1,39 @@
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whereami
+  namespace: demo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: whereami
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: whereami
+        version: v1
+    spec:
+      containers:
+      - name: whereami
+        image: us-west1-docker.pkg.dev/logan-gallagher/cloud-run-source-deploy/whereami:latest
+        ports:
+          - containerPort: 8080
+        env:
+        - name: PROJECT_ID
+          value: "logan-gallagher"
+      serviceAccountName: demo
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: demo
+  namespace: demo
+  annotations:
+    iam.gke.io/gcp-service-account: "aiplatform-sa@logan-gallagher.iam.gserviceaccount.com"

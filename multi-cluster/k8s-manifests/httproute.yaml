@@ -1,13 +1,11 @@
 kind: HTTPRoute
 apiVersion: gateway.networking.k8s.io/v1beta1
 metadata:
-  name: public-store-route
-  namespace: store
+  name: public-route
+  namespace: demo
   labels:
     gateway: external-http
 spec:
-  hostnames:
-  - "store.example.com"
   parentRefs:
   - name: external-http
   rules:
@@ -18,7 +16,7 @@ spec:
     backendRefs:
     - group: net.gke.io
       kind: ServiceImport
-      name: store-west-1
+      name: whereami-west-1
       port: 8080
   - matches:
     - path:
@@ -27,10 +25,10 @@ spec:
     backendRefs:
       - group: net.gke.io
         kind: ServiceImport
-        name: store-east-1
+        name: whereami-east-1
         port: 8080
   - backendRefs:
     - group: net.gke.io
       kind: ServiceImport
-      name: store
+      name: whereami
       port: 8080
