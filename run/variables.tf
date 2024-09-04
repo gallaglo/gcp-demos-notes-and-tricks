@@ -5,14 +5,14 @@ variable "container_image" {
 
 variable "enable_https" {
   description = "Enforce HTTPS for load balancer"
-  type = bool
-  default = false
+  type        = bool
+  default     = false
 }
 
 variable "enable_iap" {
   description = "Enable Identity-Aware Proxy protection. NOTE: enable_https must be set to `true`"
-  type = bool
-  default = false
+  type        = bool
+  default     = false
 }
 
 variable "project_id" {

@@ -65,28 +65,32 @@ resource "google_compute_region_network_endpoint_group" "serverless_neg" {
 # only create public IP address and SSL certificate if var.enable_https is `true`
 module "https" {
   source = "../https"
-  count = var.enable_https ? 1 : 0
-  name = local.service_name_prefix
-
+  count  = var.enable_https ? 1 : 0
+  name   = local.service_name_prefix
 }
 
 module "lb-http" {
   source  = "terraform-google-modules/lb-http/google//modules/serverless_negs"
   version = "~> 10.0"
 
-  name    = local.service_name_prefix
-  project = var.project_id
+  name                  = local.service_name_prefix
+  project               = var.project_id
   load_balancing_scheme = "EXTERNAL_MANAGED"
-  labels = { 
+  labels = {
     "service-name" = var.service_name_prefix,
-    "project-id" = var.project_id
-   }
+    "project-id"   = var.project_id
+  }
 
   # if var.enable_https is `true` set the following attributes to `true`
-  ssl                             = var.enable_https
-  
-  # if var.enable_https is `true`, provide SSL certificate created by https module
+  ssl = var.enable_https
+
+  # if var.enable_https is `true` set the following attributes to `false`
+  create_address = var.enable_https ? false : true
+  http_forward   = var.enable_https ? false : true
+
+  # if var.enable_https is `true`, provide IP address and SSL certificate created by https module
   ssl_certificates = var.enable_https ? [module.https[0].ssl_certificate] : []
+  address          = var.enable_https ? module.https[0].ip_address : null
 
   backends = {
     default = {
