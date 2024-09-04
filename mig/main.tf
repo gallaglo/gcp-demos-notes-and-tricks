@@ -38,7 +38,7 @@ module "mig" {
   version           = "8.0.0"
   instance_template = module.instance_template.self_link
   region            = var.region
-  hostname          = "webserver-mig"
+  hostname          = "webserver"
   target_size       = 2
   named_ports = [{
     name = "http",
