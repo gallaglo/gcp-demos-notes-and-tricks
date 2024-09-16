@@ -64,7 +64,7 @@ resource "google_compute_region_network_endpoint_group" "serverless_neg" {
 
 # only create public IP address and SSL certificate if var.enable_https is `true`
 module "https" {
-  source = "../https"
+  source = "../modules/https"
   count  = var.enable_https ? 1 : 0
   name   = local.service_name_prefix
 }
