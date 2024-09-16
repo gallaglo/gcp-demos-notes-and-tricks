@@ -21,6 +21,7 @@ module "project-services" {
 
   activate_apis = [
     "cloudresourcemanager.googleapis.com",
+    "certificatemanager.googleapis.com",
     "compute.googleapis.com",
     "iam.googleapis.com",
     "container.googleapis.com",
@@ -135,6 +136,7 @@ module "https" {
 
 # Create CertificateMap (collection of certificate configurations) if var.enable_https is `true`
 resource "google_certificate_manager_certificate_map" "default" {
+  depends_on = [module.project-services]
   count       = var.enable_https ? 1 : 0
   name        = "${local.k8s_namespace}-certificate-map"
   description = "${local.k8s_namespace} certificate map"
@@ -144,7 +146,7 @@ resource "google_certificate_manager_certificate_map_entry" "default" {
   count        = var.enable_https ? 1 : 0
   name         = "${local.k8s_namespace}-certificate-map-entry"
   description  = "${local.k8s_namespace} certificate map entry"
-  map          = google_certificate_manager_certificate_map.default.name
-  certificates = [module.https.ssl_certificate]
-  hostname     = module.https.domain_name
+  map          = google_certificate_manager_certificate_map.default[0].name
+  certificates = [module.https[0].certificate_id]
+  hostname     = module.https[0].domain_name
 }
