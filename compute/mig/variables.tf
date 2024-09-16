@@ -1,3 +1,9 @@
+variable "enable_https" {
+  description = "Enforce HTTPS for load balancer"
+  type        = bool
+  default     = false
+}
+
 variable "machine_type" {
   description = "Machine type to create, defaults to e2-micro"
   type        = string
@@ -13,6 +19,12 @@ variable "region" {
   description = "GCP region, defaults to us-west1 (Oregon)"
   type        = string
   default     = "us-west1"
+}
+
+variable "service_name_prefix" {
+  description = "Prefix for the Cloud Run service name"
+  type        = string
+  default     = "webserver"
 }
 
 variable "source_image_family" {

@@ -2,6 +2,11 @@ provider "google" {
   project = var.project_id
 }
 
+locals {
+  # trim any trailing hyphen from the service name prefix
+  service_name_prefix = trimsuffix(var.service_name_prefix, "-")
+}
+
 # retrieve ID of "default" VPC network in project
 data "google_compute_network" "default" {
   name = "default"
@@ -19,7 +24,7 @@ module "instance_template" {
     nat_ip       = null
     network_tier = "STANDARD"
   }]
-  name_prefix  = "webserver-template"
+  name_prefix  = local.service_name_prefix
   machine_type = var.machine_type
   network      = data.google_compute_network.default.self_link
   subnetwork   = data.google_compute_subnetwork.default.self_link
@@ -38,7 +43,7 @@ module "mig" {
   version           = "8.0.0"
   instance_template = module.instance_template.self_link
   region            = var.region
-  hostname          = "webserver"
+  hostname          = local.service_name_prefix
   target_size       = 2
   named_ports = [{
     name = "http",
@@ -59,13 +64,23 @@ module "mig" {
 
 module "gce-lb-http" {
   source                = "GoogleCloudPlatform/lb-http/google"
-  version               = "~> 7.0.0"
-  name                  = "webserver"
+  version               = "~> 11.0.0"
+  name                  = local.service_name_prefix
   project               = var.project_id
   load_balancing_scheme = "EXTERNAL_MANAGED"
   target_tags           = []
   firewall_networks     = [data.google_compute_network.default.name]
 
+  # if var.enable_https is `true` set the following attributes to `true`
+  ssl = var.enable_https
+
+  # if var.enable_https is `true` set the following attributes to `false`
+  create_address = var.enable_https ? false : true
+  http_forward   = var.enable_https ? false : true
+
+  # if var.enable_https is `true`, provide IP address and SSL certificate created by https module
+  ssl_certificates = var.enable_https ? [module.https[0].ssl_certificate] : []
+  address          = var.enable_https ? module.https[0].ip_address : null
 
   backends = {
     default = {
@@ -122,4 +137,11 @@ module "gce-lb-http" {
       }
     }
   }
+}
+
+# only create public IP address and SSL certificate if var.enable_https is `true`
+module "https" {
+  source = "../../modules/https"
+  count  = var.enable_https ? 1 : 0
+  name   = local.service_name_prefix
 }
