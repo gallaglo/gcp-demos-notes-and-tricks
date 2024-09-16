@@ -1,3 +1,9 @@
+variable "enable_https" {
+  description = "Enforce HTTPS for load balancer"
+  type        = bool
+  default     = false
+}
+
 variable "project_id" {
   description = "value of the project_id"
   type        = string

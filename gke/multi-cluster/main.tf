@@ -125,3 +125,26 @@ resource "google_service_account_iam_binding" "workload_identity_binding" {
     "serviceAccount:${var.project_id}.svc.id.goog[${local.k8s_namespace}/${local.k8s_sa_name}]"
   ]
 }
+
+# only create public IP address and SSL certificate if var.enable_https is `true`
+module "https" {
+  source = "../../modules/https"
+  count  = var.enable_https ? 1 : 0
+  name   = local.k8s_namespace
+}
+
+# Create CertificateMap (collection of certificate configurations) if var.enable_https is `true`
+resource "google_certificate_manager_certificate_map" "default" {
+  count       = var.enable_https ? 1 : 0
+  name        = "${local.k8s_namespace}-certificate-map"
+  description = "${local.k8s_namespace} certificate map"
+}
+
+resource "google_certificate_manager_certificate_map_entry" "default" {
+  count        = var.enable_https ? 1 : 0
+  name         = "${local.k8s_namespace}-certificate-map-entry"
+  description  = "${local.k8s_namespace} certificate map entry"
+  map          = google_certificate_manager_certificate_map.default.name
+  certificates = [module.https.ssl_certificate]
+  hostname     = module.https.domain_name
+}

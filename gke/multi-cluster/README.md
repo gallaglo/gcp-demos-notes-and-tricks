@@ -27,7 +27,7 @@ gcloud container clusters get-credentials us-east1-cluster \
     --project=${DEVSHELL_PROJECT_ID}
 ```
 
-3.  Rename the cluster contexts so they are easier to reference later:
+3. Rename the cluster contexts so they are easier to reference later:
 
 ```bash
 kubectl config rename-context gke_${DEVSHELL_PROJECT_ID}_us-west1-b_us-west1-cluster us-west1-cluster
@@ -79,11 +79,13 @@ kubectl get serviceimports --context us-east1-cluster --namespace demo
 ```
 
 5. Apply the following Gateway manifest to the config cluster, us-west1-cluster.
+
 ```bash
 kubectl apply --context us-west1-cluster -f k8s-manifests/gateway.yaml
 ```
 
 6. Apply the following HTTPRoute manifest to the config cluster, us-west1-cluster.
+
 ```bash
 kubectl apply --context us-west1-cluster -f k8s-manifests/httproute.yaml
 ```
@@ -100,8 +102,8 @@ kubectl describe gateways.gateway.networking.k8s.io external-http --context us-w
 curl http://$(kubectl get gateways.gateway.networking.k8s.io external-http -o=jsonpath="{.status.addresses[0].value}" --context us-west1-cluster --namespace demo)/api/
 ```
 
-
 ## Cleanup
+
 1. Delete GKE Gateway resources first.
 
 ```bash
@@ -131,6 +133,15 @@ kubectl config delete-context us-west1-cluster
 kubectl config delete-context us-east1-cluster
 ```
 
+## Inputs
+
+| Name | Description | Type | Default | Required |
+|------|-------------|------|---------|:--------:|
+| enable\_https | Enforce HTTPS for load balancer | `bool` | `false` | no |
+| project\_id | GCP Project ID | `string` | `""` | yes |
+| region\_1 | Region of the first Cloud Run service | `string` | `"us-west1"` | no |
+| region\_2 | Region of the second Cloud Run service | `string` | `"us-east1"` | no |
+
 ## TODO
-* Remove hardcoded values like project IDs.
-* Add support for HTTPS load balancer with [GKE Gateway](https://cloud.google.com/kubernetes-engine/docs/how-to/secure-gateway).
+
+* Parameterize hardcoded values like project IDs and container image with Kustomize or Helm.
