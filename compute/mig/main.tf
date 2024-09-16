@@ -64,7 +64,7 @@ module "mig" {
 
 module "gce-lb-http" {
   source                = "GoogleCloudPlatform/lb-http/google"
-  version               = "~> 7.0.0"
+  version               = "~> 11.0.0"
   name                  = local.service_name_prefix
   project               = var.project_id
   load_balancing_scheme = "EXTERNAL_MANAGED"
