@@ -79,8 +79,9 @@ module "gce-lb-http" {
   http_forward   = var.enable_https ? false : true
 
   # if var.enable_https is `true`, provide IP address and SSL certificate created by https module
-  ssl_certificates = var.enable_https ? [module.https[0].ssl_certificate] : []
-  address          = var.enable_https ? module.https[0].ip_address : null
+  #ssl_certificates = var.enable_https ? [module.https[0].ssl_certificate] : []
+  certificate_map = var.enable_https ? module.https[0].certificate_map_id : null
+  address         = var.enable_https ? module.https[0].ip_address : null
 
   backends = {
     default = {
