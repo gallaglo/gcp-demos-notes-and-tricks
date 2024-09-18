@@ -12,7 +12,7 @@ resource "google_compute_global_address" "default" {
 #}
 
 resource "google_certificate_manager_certificate" "certificate" {
-  name        = "${vat.name}-certificate"
+  name        = "${var.name}-certificate"
   description = "${var.name} certificate"
   scope       = "DEFAULT"
   managed {
