@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp-stable
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: webapp
+      version: stable
+  template:
+    metadata:
+      labels:
+        app: webapp
+        version: stable
+    spec:
+      containers:
+      - name: webapp
+        image: gcr.io/[PROJECT_ID]/webapp:v1
+        ports:
+        - containerPort: 8080
+        env:
+        - name: DEPLOYMENT
+          value: "Stable"
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5

@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp-canary
+spec:
+  replicas: 1  # Start with 1 replica for canary
+  selector:
+    matchLabels:
+      app: webapp
+      version: canary
+  template:
+    metadata:
+      labels:
+        app: webapp
+        version: canary
+    spec:
+      containers:
+      - name: webapp
+        image: gcr.io/[PROJECT_ID]/webapp:v2
+        ports:
+        - containerPort: 8080
+        env:
+        - name: DEPLOYMENT
+          value: "Canary"
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
