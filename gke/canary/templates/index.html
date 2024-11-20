@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ title }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 30px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #1a73e8;
+            margin-bottom: 20px;
+        }
+        .info-item {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .label {
+            font-weight: bold;
+            color: #5f6368;
+        }
+        .emoji {
+            font-size: 2em;
+            margin: 20px 0;
+        }
+        .version-info {
+            margin-top: 20px;
+            text-align: right;
+            color: #5f6368;
+            font-size: 0.9em;
+        }
+        .deployment-info {
+            padding: 8px 16px;
+            border-radius: 20px;
+            display: inline-block;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .deployment-Stable {
+            background-color: #e6f4ea;
+            color: #137333;
+        }
+        .deployment-Canary {
+            background-color: #fef7e0;
+            color: #b06000;
+        }
+        .deployment-Unknown {
+            background-color: #f1f3f4;
+            color: #5f6368;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{{ title }} <span class="emoji">{{ emoji }}</span></h1>
+        <div class="deployment-info deployment-{{ deployment }}">
+            {{ deployment }} Deployment
+        </div>
+        <div class="info-item">
+            <span class="label">Region:</span> {{ region }}
+        </div>
+        <div class="info-item">
+            <span class="label">Zone:</span> {{ zone }}
+        </div>
+        <div class="info-item">
+            <span class="label">Cluster:</span> {{ cluster }}
+        </div>
+        <div class="info-item">
+            <span class="label">Node:</span> {{ node }}
+        </div>
+        <div class="info-item">
+            <span class="label">Pod:</span> {{ pod }}
+        </div>
+        <div class="version-info">
+            Version: {{ "v1.0" if deployment == "Stable" else "v2.0" }}
+        </div>
+    </div>
+</body>
+</html>

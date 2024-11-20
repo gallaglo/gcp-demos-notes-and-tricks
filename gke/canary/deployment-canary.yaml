@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp-canary
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: webapp
+      version: canary
+  template:
+    metadata:
+      labels:
+        app: webapp
+        version: canary
+    spec:
+      containers:
+      - name: webapp
+        image: gcr.io/[PROJECT_ID]/webapp:v2
+        ports:
+        - containerPort: 8080
+        env:
+        - name: DEPLOYMENT
+          value: "Canary"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 20
