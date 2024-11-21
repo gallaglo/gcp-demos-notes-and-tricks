@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloud Run Canary Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            text-align: center;
+        }
+        .info {
+            margin: 20px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .emoji {
+            font-size: 48px;
+            margin: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Cloud Run Canary Deployment Demo</h1>
+    <div class="emoji">{{ emoji }}</div>
+    <div class="info">
+        <p><strong>Deployment:</strong> {{ deployment }}</p>
+        <p><strong>Region:</strong> {{ region }}</p>
+        <p><strong>Service ID:</strong> {{ service_id }}</p>
+    </div>
+</body>
+</html>
