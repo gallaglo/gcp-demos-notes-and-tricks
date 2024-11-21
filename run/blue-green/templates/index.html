@@ -1,0 +1,106 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloud Run Blue/Green Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            text-align: center;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            transition: background-color 0.5s ease;
+            {% if deployment == 'Blue' %}
+            background: linear-gradient(135deg, #e6f3ff 0%, #2196f3 100%);
+            color: #000;
+            {% elif deployment == 'Green' %}
+            background: linear-gradient(135deg, #e8f5e9 0%, #4caf50 100%);
+            color: #000;
+            {% else %}
+            background: #f5f5f5;
+            color: #333;
+            {% endif %}
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(5px);
+        }
+        .info {
+            margin: 20px;
+            padding: 20px;
+            border-radius: 8px;
+            {% if deployment == 'Blue' %}
+            border: 2px solid #2196f3;
+            background: rgba(33, 150, 243, 0.1);
+            {% elif deployment == 'Green' %}
+            border: 2px solid #4caf50;
+            background: rgba(76, 175, 80, 0.1);
+            {% else %}
+            border: 2px solid #ccc;
+            background: rgba(0, 0, 0, 0.05);
+            {% endif %}
+        }
+        .emoji {
+            font-size: 64px;
+            margin: 20px;
+            animation: float 2s ease-in-out infinite;
+        }
+        .title {
+            {% if deployment == 'Blue' %}
+            color: #1565c0;
+            {% elif deployment == 'Green' %}
+            color: #2e7d32;
+            {% else %}
+            color: #333;
+            {% endif %}
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+        .status-label {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 15px;
+            font-weight: bold;
+            {% if deployment == 'Blue' %}
+            background-color: #2196f3;
+            color: white;
+            {% elif deployment == 'Green' %}
+            background-color: #4caf50;
+            color: white;
+            {% else %}
+            background-color: #ccc;
+            color: #333;
+            {% endif %}
+        }
+        .info-label {
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="title">Cloud Run Blue/Green Deployment Demo</h1>
+        <div class="emoji">{{ emoji }}</div>
+        <div class="info">
+            <p><span class="status-label">{{ deployment }}</span></p>
+            <p><span class="info-label">Region:</span>{{ region }}</p>
+            <p><span class="info-label">Service ID:</span>{{ service_id }}</p>
+        </div>
+    </div>
+</body>
+</html>
