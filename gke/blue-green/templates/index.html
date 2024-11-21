@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ title }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 30px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: {{ color_hex }};
+            margin-bottom: 20px;
+        }
+        .info-item {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .label {
+            font-weight: bold;
+            color: #5f6368;
+        }
+        .emoji {
+            font-size: 2em;
+            margin: 20px 0;
+        }
+        .version-info {
+            margin-top: 20px;
+            text-align: right;
+            color: #5f6368;
+            font-size: 0.9em;
+        }
+        .deployment-info {
+            padding: 8px 16px;
+            border-radius: 20px;
+            display: inline-block;
+            margin-bottom: 20px;
+            font-weight: bold;
+            background-color: {{ color_hex }};
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{{ title }} <span class="emoji">{{ emoji }}</span></h1>
+        <div class="deployment-info">
+            {{ deployment }} Deployment
+        </div>
+        <div class="info-item">
+            <span class="label">Region:</span> {{ region }}
+        </div>
+        <div class="info-item">
+            <span class="label">Zone:</span> {{ zone }}
+        </div>
+        <div class="info-item">
+            <span class="label">Cluster:</span> {{ cluster }}
+        </div>
+        <div class="info-item">
+            <span class="label">Node:</span> {{ node }}
+        </div>
+        <div class="info-item">
+            <span class="label">Pod:</span> {{ pod }}
+        </div>
+        <div class="version-info">
+            Version: {{ "v1" if deployment == "Blue" else "v2" }}
+        </div>
+    </div>
+</body>
+</html>
