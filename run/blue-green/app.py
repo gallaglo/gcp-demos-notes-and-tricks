@@ -60,8 +60,13 @@ def home():
     region = get_region()
     service_id = get_service_id()
     
-    # Determine emoji
-    emoji = '🥚' if deployment == 'Stable' else '🐦' if deployment == 'Canary' else '❓'
+    # Determine emoji based on deployment type
+    emoji_map = {
+        'Blue': '🟦',
+        'Green': '🟩',
+        'Unknown': '❓'
+    }
+    emoji = emoji_map.get(deployment, '❓')
     
     return render_template('index.html',
                          deployment=deployment,
