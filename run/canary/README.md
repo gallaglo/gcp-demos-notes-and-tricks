@@ -74,7 +74,8 @@ gcloud auth configure-docker ${REGION}-docker.pkg.dev
 
 1. Build and push the container using Cloud Build:
 ```bash
-gcloud builds submit --config cloudbuild.yaml
+gcloud builds submit --config cloudbuild.yaml \
+  --substitutions=_REGION="${REGION}",_REPO_NAME="${REPO_NAME}"
 ```
 
 3. Deploy the stable version:
@@ -83,7 +84,8 @@ gcloud run deploy canary-demo \
   --image ${REGION}-docker.pkg.dev/$PROJECT_ID/${REPO_NAME}/canary-demo:latest \
   --platform managed \
   --region $REGION \
-  --set-env-vars DEPLOYMENT=Stable
+  --set-env-vars DEPLOYMENT=Stable \
+  --tag stable
 ```
 
 4. Deploy the canary version:
@@ -93,14 +95,15 @@ gcloud run deploy canary-demo \
   --platform managed \
   --region $REGION \
   --set-env-vars DEPLOYMENT=Canary \
-  --tag canary
+  --tag canary \
+  --no-traffic
 ```
 
 5. Set up traffic splitting (e.g., 90% stable, 10% canary):
 ```bash
 gcloud run services update-traffic canary-demo \
-  --to-tags canary=10 \
-  --to-latest=90
+  --region $REGION \
+  --to-tags stable=90,canary=10
 ```
 
 ## Testing the Deployment
@@ -117,19 +120,30 @@ gcloud run services describe canary-demo \
    - The egg emoji (🥚) approximately 90% of the time (stable)
    - The bird emoji (🐦) approximately 10% of the time (canary)
 
+## Increase traffic to Canary Deployment
+
+1. Update traffic splitting (e.g., 50% stable, 50% canary):
+```bash
+gcloud run services update-traffic canary-demo \
+  --region $REGION \
+  --to-tags stable=50,canary=50
+```
+2. Open the URL in a browser and refresh multiple times. You should see:
+   - The egg emoji (🥚) approximately 50% of the time (stable)
+   - The bird emoji (🐦) approximately 50% of the time (canary)
+
 ## Monitoring and Rollback
 
 To monitor the deployment:
 ```bash
 gcloud run services describe canary-demo \
-  --platform managed \
   --region $REGION
 ```
 
 To rollback (return all traffic to stable):
 ```bash
 gcloud run services update-traffic canary-demo \
-  --to-latest=100
+  --to-tags stable=100
 ```
 
 ## Cleanup
@@ -137,7 +151,6 @@ gcloud run services update-traffic canary-demo \
 1. Delete the Cloud Run service:
 ```bash
 gcloud run services delete canary-demo \
-  --platform managed \
   --region $REGION
 ```
 

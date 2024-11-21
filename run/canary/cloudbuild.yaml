@@ -1,13 +1,18 @@
+substitutions:
+  _REGION: ${_REGION}
+  _REPO_NAME: ${_REPO_NAME}
+
 steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: [
       'build',
       '-t',
-      '${REGION}-docker.pkg.dev/$PROJECT_ID/${REPO_NAME}/canary-demo:latest',
+      '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/canary-demo:latest',
       '.'
     ]
   - name: 'gcr.io/cloud-builders/docker'
     args: [
       'push',
-      '${REGION}-docker.pkg.dev/$PROJECT_ID/${REPO_NAME}/canary-demo:latest'
+      '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO_NAME}/canary-demo:latest'
     ]
+  
