@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Animation Generator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <div>
+        <h1>Animation Generator</h1>
+        <form id="promptForm">
+            <textarea id="prompt" rows="4" cols="50" placeholder="Describe your animation..."></textarea>
+            <button type="submit">Generate Animation</button>
+        </form>
+        <div id="status"></div>
+        <div id="animationContainer"></div>
+    </div>
+
+    <script>
+        document.getElementById('promptForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const prompt = document.getElementById('prompt').value;
+            const status = document.getElementById('status');
+            
+            status.textContent = 'Generating animation...';
+            
+            try {
+                const response = await fetch('/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ prompt }),
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    status.textContent = 'Animation generated!';
+                    // Load animation using Three.js
+                    loadAnimation(data.animation_url);
+                } else {
+                    status.textContent = `Error: ${data.error}`;
+                }
+            } catch (error) {
+                status.textContent = `Error: ${error.message}`;
+            }
+        });
+
+        function loadAnimation(url) {
+            // Initialize Three.js scene and load animation
+            // This is a basic example - you'll need to customize based on your animation format
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            const renderer = new THREE.WebGLRenderer();
+            
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.getElementById('animationContainer').appendChild(renderer.domElement);
+            
+            // Load and play animation
+            const loader = new THREE.ObjectLoader();
+            loader.load(url, (obj) => {
+                scene.add(obj);
+                camera.position.z = 5;
+                
+                function animate() {
+                    requestAnimationFrame(animate);
+                    renderer.render(scene, camera);
+                }
+                animate();
+            });
+        }
+    </script>
+</body>
+</html>
