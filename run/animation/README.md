@@ -15,37 +15,23 @@
 ```mermaid
 flowchart LR
     User((User))
-    
-    subgraph Frontend["Frontend Service - Cloud Run"]
-        WebUI[Web Interface]
-        ThreeJS[Three.js Viewer]
-    end
+    WebUI[Web Interface]
+    ThreeJS[Three.js Viewer]
+    APIHandler[API Handler]
+    ScriptGen[Script Generator]
+    BlenderExec[Blender Executor]
+    VertexAI[Vertex AI LLM]
+    GCS[(Cloud Storage)]
 
-    subgraph Backend["Backend Service - Cloud Run"]
-        APIHandler[API Handler]
-        ScriptGen[Script Generator]
-        BlenderExec[Blender Executor]
-    end
-
-    subgraph ExternalSvc["External Services"]
-        VertexAI[Vertex AI LLM]
-        GCS[(Cloud Storage)]
-    end
-
-    User -->|"1. Enter prompt"| WebUI
-    WebUI -->|"2. Send prompt"| APIHandler
-    APIHandler -->|"3. Request script"| VertexAI
-    VertexAI -->|"4. Return script"| ScriptGen
-    ScriptGen -->|"5. Validate script"| BlenderExec
-    BlenderExec -->|"6. Generate animation"| BlenderExec
-    BlenderExec -->|"7. Upload file"| GCS
-    GCS -->|"8. Return signed URL"| APIHandler
-    APIHandler -->|"9. Return URL"| WebUI
-    WebUI -->|"10. Load animation"| ThreeJS
-    ThreeJS -->|"11. Display"| User
-
-    style Frontend fill:#f2f2f2,stroke:#333,stroke-width:2px
-    style Backend fill:#f2f2f2,stroke:#333,stroke-width:2px
-    style ExternalSvc fill:#e6f3ff,stroke:#333,stroke-width:2px
-    style User fill:#f9f,stroke:#333,stroke-width:2px
+    User -->|Enter prompt| WebUI
+    WebUI -->|Send prompt| APIHandler
+    APIHandler -->|Request script| VertexAI
+    VertexAI -->|Return script| ScriptGen
+    ScriptGen -->|Validate script| BlenderExec
+    BlenderExec -->|Generate animation| BlenderExec
+    BlenderExec -->|Upload file| GCS
+    GCS -->|Return signed URL| APIHandler
+    APIHandler -->|Return URL| WebUI
+    WebUI -->|Load animation| ThreeJS
+    ThreeJS -->|Display| User
 ```
