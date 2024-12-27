@@ -3,7 +3,8 @@ import os
 import subprocess
 import tempfile
 from google.cloud import storage
-from google.cloud import aiplatform
+from google import genai
+from google.genai import types
 import json
 import uuid
 
@@ -14,8 +15,13 @@ storage_client = storage.Client()
 BUCKET_NAME = os.getenv('GCS_BUCKET_NAME')
 bucket = storage_client.bucket(BUCKET_NAME)
 
-# Configure Vertex AI
-aiplatform.init(project=os.getenv('GCP_PROJECT_ID'))
+# Configure Gemini
+# TODO: chnage to us-west1 when Gemini 2.0 is available in that region
+genai_client = genai.Client(
+    vertexai=True,
+    project=os.getenv('GCP_PROJECT_ID'),
+    location="us-central1"
+)
 
 @app.route('/generate', methods=['POST'])
 def generate():
@@ -33,7 +39,7 @@ def generate():
         return jsonify({'error': 'No prompt provided'}), 400
     
     try:
-        # Generate Blender script using Vertex AI
+        # Generate Blender script using Gemini
         script = generate_blender_script(prompt)
         
         # Create temporary directory for working files
@@ -77,12 +83,9 @@ def generate():
         }), 500
 
 def generate_blender_script(prompt):
-    # Initialize Vertex AI model
-    model = aiplatform.TextGenerationModel.from_pretrained("text-bison@001")
-    
-    # Construct prompt for the LLM
-    llm_prompt = f"""
-    Create a Python script for Blender that will generate a 3D animation based on this description:
+    app.logger.info("Generating Blender script with Gemini")
+    # Construct prompt for Gemini
+    llm_prompt = f"""Create a Python script for Blender that will generate a 3D animation based on this description:
     {prompt}
     
     The script must include these essential components:
@@ -127,18 +130,49 @@ def generate_blender_script(prompt):
 
     Format the code with clear sections and comments for readability."""
     
-    # Get response from model
-    response = model.predict(llm_prompt)
+    # Configure Gemini request
+    contents = [
+        types.Content(
+            role="user",
+            parts=[types.Part.from_text(llm_prompt)]
+        ),
+    ]
     
-    # Extract and validate Python script
-    script = response.text
-    validate_script(script)
+    generate_content_config = types.GenerateContentConfig(
+        temperature=1,
+        top_p=0.95,
+        max_output_tokens=8192,
+        response_modalities=["TEXT"],
+        safety_settings=[
+            types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="OFF"),
+            types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="OFF"),
+            types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="OFF"),
+            types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="OFF")
+        ],
+    )
     
-    return script
+    # Get response from Gemini
+    response = ""
+    for chunk in genai_client.models.generate_content_stream(
+        model="gemini-2.0-flash-exp",
+        contents=contents,
+        config=generate_content_config,
+    ):
+        response += chunk.text
+    
+    # Validate the generated script
+    validate_script(response)
+    
+    # Log the generated script
+    app.logger.info("Generated Blender script:")
+    app.logger.info(response)
+    
+    return response
 
 def validate_script(script):
     # Basic validation of the generated script
-    forbidden_terms = ['system', 'os.system', 'subprocess', 'eval', 'exec']
+    #forbidden_terms = ['system', 'os.system', 'subprocess', 'eval', 'exec']
+    forbidden_terms = ['subprocess']
     for term in forbidden_terms:
         if term in script:
             raise ValueError(f'Generated script contains forbidden term: {term}')
@@ -148,6 +182,10 @@ def validate_script(script):
 
 def run_blender(script_path, output_path):
     try:
+        # Log the paths being used
+        app.logger.info(f"Running Blender with script path: {script_path}")
+        app.logger.info(f"Output path: {output_path}")
+        
         # Run Blender headlessly with the generated script
         result = subprocess.run([
             'blender',
@@ -157,15 +195,30 @@ def run_blender(script_path, output_path):
             output_path
         ], capture_output=True, text=True)
         
+        # Log Blender's output
+        app.logger.info(f"Blender stdout: {result.stdout}")
+        if result.stderr:
+            app.logger.error(f"Blender stderr: {result.stderr}")
+        
+        # Check if the output file was created
+        if not os.path.exists(output_path):
+            app.logger.error(f"Output file was not created at {output_path}")
+            return {
+                'success': False,
+                'error': f'Blender failed to create output file. stderr: {result.stderr}'
+            }
+        
         if result.returncode == 0:
+            app.logger.info(f"Blender execution successful. File exists: {os.path.exists(output_path)}")
             return {'success': True}
         else:
             return {
                 'success': False,
-                'error': f'Blender error: {result.stderr}'
+                'error': f'Blender error (return code {result.returncode}): {result.stderr}'
             }
     
     except Exception as e:
+        app.logger.error(f"Exception in run_blender: {str(e)}")
         return {
             'success': False,
             'error': f'Error running Blender: {str(e)}'

@@ -1,5 +1,6 @@
 flask==2.3.3
 werkzeug==2.3.7
 google-cloud-storage==2.9.0
-google-cloud-aiplatform==1.28.1
 gunicorn==21.2.0
+google-genai
+
