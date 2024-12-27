@@ -20,6 +20,8 @@ def generate_animation():
         return jsonify({'error': 'No prompt provided'}), 400
     
     try:
+        app.logger.info(f"Sending request to backend: {BACKEND_SERVICE_URL}/generate")
+        
         # Call backend service to generate animation
         response = requests.post(
             f"{BACKEND_SERVICE_URL}/generate",
@@ -27,8 +29,18 @@ def generate_animation():
             headers={'Content-Type': 'application/json'}
         )
         
-        response.raise_for_status()
-        return jsonify(response.json())
+        app.logger.info(f"Backend response status: {response.status_code}")
+        app.logger.info(f"Backend response content: {response.text}")
+        
+        if not response.ok:
+            app.logger.error(f"Backend error: {response.text}")
+            return jsonify({'error': f'Backend error: {response.text}'}), response.status_code
+            
+        try:
+            return jsonify(response.json())
+        except ValueError as e:
+            app.logger.error(f"JSON decode error: {str(e)}, Response content: {response.text}")
+            return jsonify({'error': f'Invalid JSON response from backend: {response.text}'}), 500
     
     except requests.exceptions.RequestException as e:
         return jsonify({'error': f'Backend service error: {str(e)}'}), 500

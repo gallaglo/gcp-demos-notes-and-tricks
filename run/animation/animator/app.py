@@ -19,9 +19,17 @@ aiplatform.init(project=os.getenv('GCP_PROJECT_ID'))
 
 @app.route('/generate', methods=['POST'])
 def generate():
+    app.logger.info(f"Received request: {request.data}")
+    
+    if not request.is_json:
+        app.logger.error("Request is not JSON")
+        return jsonify({'error': 'Request must be JSON'}), 400
+        
     prompt = request.json.get('prompt')
+    app.logger.info(f"Extracted prompt: {prompt}")
     
     if not prompt:
+        app.logger.error("No prompt provided in request")
         return jsonify({'error': 'No prompt provided'}), 400
     
     try:
@@ -60,7 +68,13 @@ def generate():
                 return jsonify({'error': result['error']}), 500
     
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        app.logger.error(f"Error processing request: {str(e)}")
+        app.logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
 
 def generate_blender_script(prompt):
     # Initialize Vertex AI model
@@ -71,12 +85,47 @@ def generate_blender_script(prompt):
     Create a Python script for Blender that will generate a 3D animation based on this description:
     {prompt}
     
-    The script should:
-    1. Create a 3D animation
-    2. Save it in GLB format
-    3. Use the output_path variable that will be provided
-    4. Run without GUI (headless mode)
-    """
+    The script must include these essential components:
+
+    1. Basic Setup:
+       - Import bpy (Blender Python API)
+       - Clear any existing objects (meshes, lights, cameras)
+       - Set frame range (start=1, end=250 for 10-second animation at 25fps)
+
+    2. Camera Setup:
+       - Create a camera at a good viewing distance (usually 5-10 units back)
+       - Set camera parameters (focal length, sensor size)
+       - Add orbit or tracking camera motion if appropriate
+       - Parent camera to an empty object for easier animation
+       - Set up proper camera constraints if needed
+
+    3. Lighting Setup:
+       - Create key light (main illumination)
+       - Add fill light (reduce shadows)
+       - Include rim/back light for depth
+       - Set appropriate light energy and color values
+
+    4. Scene Requirements:
+       - Create the 3D objects and animation as described in the prompt
+       - Apply materials and textures
+       - Set up proper environment lighting
+       - Configure render settings for quality output
+
+    5. Animation Export:
+       - Set up GLB export settings
+       - Use the provided output_path variable for saving
+       - Enable animation data in export
+       - Include cameras and lights in export
+
+    The script must:
+    - Run without GUI (headless mode)
+    - Handle materials and textures properly
+    - Use best practices for performance
+    - Include error handling
+    - Set up proper world settings for background
+    - Configure view layers and collections appropriately
+
+    Format the code with clear sections and comments for readability."""
     
     # Get response from model
     response = model.predict(llm_prompt)
