@@ -16,7 +16,6 @@ BUCKET_NAME = os.getenv('GCS_BUCKET_NAME')
 bucket = storage_client.bucket(BUCKET_NAME)
 
 # Configure Gemini
-# TODO: chnage to us-west1 when Gemini 2.0 is available in that region
 genai_client = genai.Client(
     vertexai=True,
     project=os.getenv('GCP_PROJECT_ID'),
@@ -44,32 +43,45 @@ def generate():
         
         # Create temporary directory for working files
         with tempfile.TemporaryDirectory() as temp_dir:
+            app.logger.info(f"Created temporary directory: {temp_dir}")
+            app.logger.info(f"Temp directory permissions: {oct(os.stat(temp_dir).st_mode)}")
+            
             script_path = os.path.join(temp_dir, 'animation.py')
             output_path = os.path.join(temp_dir, 'animation.glb')
             
             # Save script to temporary file
-            with open(script_path, 'w') as f:
-                f.write(script)
+            try:
+                with open(script_path, 'w') as f:
+                    f.write(script)
+                app.logger.info(f"Script saved successfully to {script_path}")
+            except Exception as e:
+                app.logger.error(f"Error saving script: {str(e)}")
+                raise
             
             # Run Blender headlessly
             result = run_blender(script_path, output_path)
             
             if result['success']:
-                # Upload to GCS
-                gcs_path = f'animations/{uuid.uuid4()}.glb'
-                blob = bucket.blob(gcs_path)
-                blob.upload_from_filename(output_path)
-                
-                # Generate signed URL for frontend access
-                url = blob.generate_signed_url(
-                    version='v4',
-                    expiration=3600,  # 1 hour
-                    method='GET'
-                )
-                
-                return jsonify({
-                    'animation_url': url
-                })
+                try:
+                    # Upload to GCS
+                    gcs_path = f'animations/{uuid.uuid4()}.glb'
+                    blob = bucket.blob(gcs_path)
+                    blob.upload_from_filename(output_path)
+                    app.logger.info(f"File uploaded successfully to GCS: {gcs_path}")
+                    
+                    # Generate signed URL for frontend access
+                    url = blob.generate_signed_url(
+                        version='v4',
+                        expiration=3600,
+                        method='GET'
+                    )
+                    
+                    return jsonify({
+                        'animation_url': url
+                    })
+                except Exception as e:
+                    app.logger.error(f"Error uploading to GCS: {str(e)}")
+                    raise
             else:
                 return jsonify({'error': result['error']}), 500
     
@@ -84,7 +96,6 @@ def generate():
 
 def generate_blender_script(prompt):
     app.logger.info("Generating Blender script with Gemini")
-    # Construct prompt for Gemini
     llm_prompt = f"""Create a Python script for Blender that will generate a 3D animation based on this description:
     {prompt}
     
@@ -130,7 +141,6 @@ def generate_blender_script(prompt):
 
     Format the code with clear sections and comments for readability."""
     
-    # Configure Gemini request
     contents = [
         types.Content(
             role="user",
@@ -151,7 +161,6 @@ def generate_blender_script(prompt):
         ],
     )
     
-    # Get response from Gemini
     response = ""
     for chunk in genai_client.models.generate_content_stream(
         model="gemini-2.0-flash-exp",
@@ -160,28 +169,34 @@ def generate_blender_script(prompt):
     ):
         response += chunk.text
     
-    # Validate the generated script
     validate_script(response)
-    
-    # Log the generated script
     app.logger.info("Generated Blender script:")
     app.logger.info(response)
     
     return response
 
 def validate_script(script):
-    # Basic validation of the generated script
-    #forbidden_terms = ['system', 'os.system', 'subprocess', 'eval', 'exec']
     forbidden_terms = ['subprocess']
     for term in forbidden_terms:
         if term in script:
             raise ValueError(f'Generated script contains forbidden term: {term}')
-    
-    # Add more validation as needed
     return True
 
 def run_blender(script_path, output_path):
     try:
+        # Log filesystem information
+        app.logger.info(f"Current working directory: {os.getcwd()}")
+        app.logger.info(f"Directory listing: {os.listdir('.')}")
+        app.logger.info(f"Temp directory exists: {os.path.exists(os.path.dirname(output_path))}")
+        
+        # Ensure output directory exists
+        try:
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            app.logger.info(f"Output directory created/verified")
+            app.logger.info(f"Directory permissions: {oct(os.stat(os.path.dirname(output_path)).st_mode)}")
+        except Exception as e:
+            app.logger.error(f"Error creating output directory: {str(e)}")
+            
         # Log the paths being used
         app.logger.info(f"Running Blender with script path: {script_path}")
         app.logger.info(f"Output path: {output_path}")
@@ -190,6 +205,7 @@ def run_blender(script_path, output_path):
         result = subprocess.run([
             'blender',
             '--background',
+            '--factory-startup',
             '--python', script_path,
             '--',
             output_path
@@ -199,6 +215,13 @@ def run_blender(script_path, output_path):
         app.logger.info(f"Blender stdout: {result.stdout}")
         if result.stderr:
             app.logger.error(f"Blender stderr: {result.stderr}")
+            
+        # Log file system state after Blender run
+        app.logger.info(f"After Blender run - Directory listing: {os.listdir('.')}")
+        app.logger.info(f"After Blender run - Output path exists: {os.path.exists(output_path)}")
+        if os.path.exists(output_path):
+            app.logger.info(f"Output file permissions: {oct(os.stat(output_path).st_mode)}")
+            app.logger.info(f"Output file size: {os.path.getsize(output_path)}")
         
         # Check if the output file was created
         if not os.path.exists(output_path):
