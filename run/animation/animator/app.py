@@ -44,7 +44,10 @@ def generate():
         # Create temporary directory for working files
         with tempfile.TemporaryDirectory() as temp_dir:
             app.logger.info(f"Created temporary directory: {temp_dir}")
-            app.logger.info(f"Temp directory permissions: {oct(os.stat(temp_dir).st_mode)}")
+            
+            # Set directory permissions
+            os.chmod(temp_dir, 0o777)
+            app.logger.info(f"Temp directory permissions after chmod: {oct(os.stat(temp_dir).st_mode)}")
             
             script_path = os.path.join(temp_dir, 'animation.py')
             output_path = os.path.join(temp_dir, 'animation.glb')
@@ -206,6 +209,7 @@ def run_blender(script_path, output_path):
             'blender',
             '--background',
             '--factory-startup',
+            '--disable-autoexec',
             '--python', script_path,
             '--',
             output_path
