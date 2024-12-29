@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 @lru_cache()
 def get_storage_client():
-    """Creates a storage client using Cloud Run's default credentials"""
+    """Creates a storage client using the configured service account"""
     try:
         client = storage.Client()
         logger.info("Initialized storage client")
@@ -70,14 +70,24 @@ except Exception as e:
 BLENDER_PROMPT = """Create a Python script for Blender that will generate a 3D animation based on this description:
 {user_prompt}
 
-The script must include these essential components in this exact order:
+The script must start with this exact code for handling the output path:
+```python
+import bpy
+import sys
+
+# Get output path from command line arguments
+if "--" not in sys.argv:
+    raise Exception("Please provide the output path after '--'")
+output_path = sys.argv[sys.argv.index("--") + 1]
+```
+
+Then include these essential components in this exact order:
 
 1. Basic Setup:
-   - Import bpy (Blender Python API)
    - Clear existing objects
    - Set frame range (start=1, end=250 for 10-second animation at 25fps)
-   - Create a new world if it doesn't exist (bpy.data.worlds.new("World"))
-   - Link the world to the scene (bpy.context.scene.world = bpy.data.worlds["World"])
+   - Create a new world if it doesn't exist
+   - Link the world to the scene
 
 2. Camera Setup:
    - Create camera at good viewing distance
@@ -97,52 +107,22 @@ The script must include these essential components in this exact order:
    - Configure render settings
 
 5. Animation Export:
-   - Use bpy.ops.export_scene.gltf() for export (NOT bpy.ops.export.gltf)
-   - Set the filepath to output_path
-   - Set export_format='GLB'
-   - Enable export_animations=True
-   - Enable export_cameras=True
-   - Enable export_lights=True
+   - Use EXACTLY this export code at the end of the script:
+     bpy.ops.export_scene.gltf(
+         filepath=output_path,
+         export_format='GLB',
+         export_animations=True,
+         export_cameras=True,
+         export_lights=True
+     )
 
-The script must run without GUI (headless mode) and include proper error handling.
-
-Important: Use EXACTLY this export code:
-bpy.ops.export_scene.gltf(
-    filepath=output_path,
-    export_format='GLB',
-    export_animations=True,
-    export_cameras=True,
-    export_lights=True
-)"""
+The script must run without GUI (headless mode) and include proper error handling."""
 
 class BlenderScriptGenerator:
     def generate(self, prompt: str) -> str:
         try:
             logger.info("Sending prompt to LLM")
             response = llm.invoke(BLENDER_PROMPT.format(user_prompt=prompt))
-            logger.info(f"LLM Response type: {type(response)}")
-            
-            # Log full response to GCS
-            try:
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                log_path = f'debug_logs/{timestamp}_llm_response.txt'
-                blob = bucket.blob(log_path)
-                
-                log_content = f"""
-Timestamp: {timestamp}
-Prompt: {prompt}
-Response Type: {type(response)}
-Raw Response: {response}
-"""
-                
-                blob.upload_from_string(log_content)
-                logger.info(f"Logged LLM response to GCS: {log_path}")
-            except Exception as e:
-                logger.error(f"Failed to log to GCS: {str(e)}")
-            
-            if not response:
-                logger.error("LLM returned None response")
-                raise ValueError("Invalid response from LLM")
             
             # Extract content from AIMessage
             if hasattr(response, 'content'):
@@ -153,39 +133,100 @@ Raw Response: {response}
             # Extract script from between triple backticks
             if '```python' in raw_content and '```' in raw_content:
                 script = raw_content.split('```python')[1].split('```')[0].strip()
-                logger.info("Successfully extracted Python script from response")
             else:
-                script = raw_content
-                logger.info("Using full response as script (no code blocks found)")
+                script = raw_content.strip()
                 
             if not script:
                 logger.error("Generated script is empty")
                 raise ValueError("Empty script generated")
-                
-            logger.info(f"Script length: {len(script)} characters")
-            return self.validate_script(script)
+            
+            # Inject the command-line argument handling
+            script = self._modify_script_for_output_path(script)
+            
+            # Validate script has required components
+            self._validate_script_requirements(script)
+            
+            return script
         except Exception as e:
             logger.error(f"Error generating script: {str(e)}")
-            logger.error(f"Error type: {type(e)}")
             raise ValueError(f"Failed to generate script: {str(e)}")
 
-    def validate_script(self, script: str) -> str:
+    def _modify_script_for_output_path(self, script: str) -> str:
+        # Remove any existing output path assignments
+        lines = script.split('\n')
+        filtered_lines = [
+            line for line in lines 
+            if not ('output_path =' in line and 'os.path' in line)
+        ]
+        
+        # Find the position after the imports
+        import_end_idx = 0
+        for i, line in enumerate(filtered_lines):
+            if line.strip().startswith('import '):
+                import_end_idx = i + 1
+        
+        # Insert our path handling code
+        path_handling = [
+            "",
+            "# Get output path from command line arguments",
+            "if \"--\" not in sys.argv:",
+            "    raise Exception(\"Please provide the output path after '--'\")",
+            "output_path = sys.argv[sys.argv.index(\"--\") + 1]",
+            ""
+        ]
+        
+        # Ensure sys is imported
+        if 'import sys' not in script:
+            path_handling.insert(0, "import sys")
+        
+        # Combine everything
+        modified_script = (
+            '\n'.join(filtered_lines[:import_end_idx]) + 
+            '\n' + 
+            '\n'.join(path_handling) + 
+            '\n' + 
+            '\n'.join(filtered_lines[import_end_idx:])
+        )
+        
+        return modified_script
+
+    def _validate_script_requirements(self, script: str) -> None:
+        # Check for forbidden terms
         forbidden_terms = ['subprocess']
         for term in forbidden_terms:
             if term in script:
                 raise ValueError(f'Generated script contains forbidden term: {term}')
-        return script
+        
+        # Required components to check
+        required_components = [
+            'import sys',
+            'sys.argv',
+            'bpy.ops.export_scene.gltf(',
+            'filepath=output_path',
+            'export_format=\'GLB\'',
+        ]
+        
+        for component in required_components:
+            if component not in script:
+                raise ValueError(f'Generated script missing required component: {component}')
 
 class BlenderRunner:
     @staticmethod
     def run_blender(script_path: str, output_path: str) -> dict:
         try:
+            # Create output directory and log paths
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             logger.info(f"Created output directory: {os.path.dirname(output_path)}")
+            logger.info(f"Script path: {os.path.abspath(script_path)}")
+            logger.info(f"Output path: {os.path.abspath(output_path)}")
+            
+            # Log script content for debugging
+            with open(script_path, 'r') as f:
+                script_content = f.read()
+            logger.info("Generated Blender script content:")
+            logger.info(script_content)
             
             blender_path = "/usr/local/blender/blender"
-            logger.info(f"Using Blender at: {blender_path}")
-            
             cmd = [
                 blender_path,
                 '--background',
@@ -195,22 +236,39 @@ class BlenderRunner:
                 '--',
                 output_path
             ]
+            
             logger.info(f"Running command: {' '.join(cmd)}")
-            
             result = subprocess.run(cmd, capture_output=True, text=True)
-            logger.info(f"Blender stdout: {result.stdout}")
             
-            # Check if "Successfully exported" or "Finished glTF 2.0 export" is in output
+            # Log Blender output
+            logger.info(f"Blender stdout: {result.stdout}")
+            if result.stderr:
+                logger.info(f"Blender stderr: {result.stderr}")
+            
+            # Verify file existence after Blender execution
+            logger.info(f"Checking if output file exists at: {output_path}")
+            if os.path.exists(output_path):
+                logger.info(f"Output file exists with size: {os.path.getsize(output_path)} bytes")
+            else:
+                logger.error(f"Output file does not exist at: {output_path}")
+                # Check common alternative locations
+                common_paths = [
+                    '/app/output.glb',
+                    './output.glb',
+                    os.path.join(os.path.dirname(script_path), 'output.glb')
+                ]
+                for path in common_paths:
+                    if os.path.exists(path):
+                        logger.error(f"Found file at incorrect location: {path}")
+            
             if any(success_msg in result.stdout for success_msg in [
                 "Successfully exported", 
                 "Finished glTF 2.0 export"
             ]):
                 return {'success': True}
             else:
-                # Only log as error if there's a real problem
-                if "could not get a list of mounted file-systems" not in result.stderr or not "Finished glTF 2.0 export" in result.stdout:
+                if "could not get a list of mounted file-systems" not in result.stderr:
                     logger.error(f"Blender stderr: {result.stderr}")
-                    logger.error(f"Blender stdout: {result.stdout}")
                 return {
                     'success': False,
                     'error': f'Blender error: {result.stderr}'
@@ -224,22 +282,40 @@ class GCSUploader:
         self.bucket = bucket
     
     def upload_file(self, local_path: str) -> str:
-        try:
-            gcs_path = f'animations/{uuid.uuid4()}.glb'
-            blob = self.bucket.blob(gcs_path)
+        """
+        Uploads a file to GCS and returns a signed URL for downloading.
+        
+        Args:
+            local_path (str): Path to the local file to upload
             
+        Returns:
+            str: Signed URL for downloading the file
+            
+        Raises:
+            Exception: If upload or URL generation fails
+        """
+        try:
+            # Generate a unique path for the animation
+            blob_name = f'animations/{uuid.uuid4()}.glb'
+            blob = self.bucket.blob(blob_name)
+            
+            # Upload the file
             with open(local_path, 'rb') as file_obj:
                 blob.upload_from_file(file_obj)
-            logger.info(f"Successfully uploaded file to {gcs_path}")
+            logger.info(f"Successfully uploaded file to {blob_name}")
             
+            # Generate signed URL
             url = blob.generate_signed_url(
-                version='v4',
-                expiration=datetime.timedelta(minutes=60),
-                method='GET'
+                version="v4",
+                expiration=datetime.timedelta(minutes=15),
+                method="GET",
             )
+            
+            logger.info(f"Generated signed URL for {blob_name}")
             return url
+            
         except Exception as e:
-            logger.error(f"Error uploading to GCS: {str(e)}")
+            logger.error(f"Error in GCS operation: {str(e)}")
             raise
 
 @app.route('/generate', methods=['POST'])
@@ -274,8 +350,18 @@ def generate():
             result = blender_runner.run_blender(script_path, output_path)
             
             if result['success']:
-                url = gcs_uploader.upload_file(output_path)
-                return jsonify({'animation_url': url})
+                try:
+                    signed_url = gcs_uploader.upload_file(output_path)
+                    return jsonify({
+                        'signed_url': signed_url,
+                        'expiration': '15 minutes'
+                    })
+                except Exception as upload_error:
+                    logger.error(f"Upload error: {str(upload_error)}")
+                    return jsonify({
+                        'error': 'Failed to upload animation or generate signed URL',
+                        'details': str(upload_error)
+                    }), 500
             return jsonify({'error': result['error']}), 500
     
     except Exception as e:
