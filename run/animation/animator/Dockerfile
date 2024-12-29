@@ -1,4 +1,5 @@
-FROM python:3.9-slim
+# Use Debian Bookworm slim image which has newer versions of zlib and expat
+FROM python:3.9-slim-bookworm
 
 # Install dependencies first
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -16,6 +17,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libx11-6 \
     libxcursor1 \
     libxinerama1 \
+    # Explicitly install newer versions of vulnerable packages
+    zlib1g \
+    libexpat1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Download and install specific Blender version
@@ -35,17 +39,24 @@ RUN useradd -m -s /bin/bash blenderuser && \
     chown -R blenderuser:blenderuser /usr/local/blender
 
 # Set Blender environment variables
-ENV BLENDER_USER_CONFIG=/tmp/blender-config
-ENV BLENDER_USER_SCRIPTS=/usr/local/blender/2.93/scripts
-ENV BLENDER_SYSTEM_SCRIPTS=/usr/local/blender/2.93/scripts
-ENV XDG_CONFIG_HOME=/tmp/blender-config
+ENV BLENDER_USER_CONFIG=/tmp/blender-config \
+    BLENDER_USER_SCRIPTS=/usr/local/blender/2.93/scripts \
+    BLENDER_SYSTEM_SCRIPTS=/usr/local/blender/2.93/scripts \
+    XDG_CONFIG_HOME=/tmp/blender-config
 
+# Switch to non-root user
 USER blenderuser
 WORKDIR /app
 
+# Copy and install requirements
 COPY requirements.txt .
 RUN pip install --user --no-cache-dir -r requirements.txt
+
+# Add local bin to PATH
 ENV PATH="/home/blenderuser/.local/bin:${PATH}"
 
+# Copy application files
 COPY . .
+
+# Command to run the application
 CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 app:app
