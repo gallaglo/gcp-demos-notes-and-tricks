@@ -8,6 +8,7 @@ import uuid
 import logging
 import datetime
 from functools import lru_cache
+from prompts import BLENDER_PROMPT
 
 app = Flask(__name__)
 
@@ -66,63 +67,13 @@ except Exception as e:
     logger.error(f"Failed to initialize components: {str(e)}")
     raise
 
-# System prompt for script generation
-BLENDER_PROMPT = """Create a Python script for Blender that will generate a 3D animation based on this description:
-{user_prompt}
-
-The script must start with this exact code for handling the output path:
-```python
-import bpy
-import sys
-
-# Get output path from command line arguments
-if "--" not in sys.argv:
-    raise Exception("Please provide the output path after '--'")
-output_path = sys.argv[sys.argv.index("--") + 1]
-```
-
-Then include these essential components in this exact order:
-
-1. Basic Setup:
-   - Clear existing objects
-   - Set frame range (start=1, end=250 for 10-second animation at 25fps)
-   - Create a new world if it doesn't exist
-   - Link the world to the scene
-
-2. Camera Setup:
-   - Create camera at good viewing distance
-   - Set camera parameters
-   - Add camera motion if appropriate
-   - Parent camera to empty object
-   - Set up camera constraints
-
-3. Lighting Setup:
-   - Create key, fill, and rim lights
-   - Set light energy and color values
-
-4. Scene Requirements:
-   - Create 3D objects and animation
-   - Apply materials and textures
-   - Set up environment lighting
-   - Configure render settings
-
-5. Animation Export:
-   - Use EXACTLY this export code at the end of the script:
-     bpy.ops.export_scene.gltf(
-         filepath=output_path,
-         export_format='GLB',
-         export_animations=True,
-         export_cameras=True,
-         export_lights=True
-     )
-
-The script must run without GUI (headless mode) and include proper error handling."""
-
 class BlenderScriptGenerator:
     def generate(self, prompt: str) -> str:
         try:
             logger.info("Sending prompt to LLM")
-            response = llm.invoke(BLENDER_PROMPT.format(user_prompt=prompt))
+            # Use the LangChain prompt template
+            formatted_prompt = BLENDER_PROMPT.format(user_prompt=prompt)
+            response = llm.invoke(formatted_prompt)
             
             # Extract content from AIMessage
             if hasattr(response, 'content'):
