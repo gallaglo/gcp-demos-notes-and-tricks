@@ -66,7 +66,11 @@ gcloud services enable \
     cloudbuild.googleapis.com \
     run.googleapis.com \
     aiplatform.googleapis.com \
-    storage.googleapis.com
+    storage.googleapis.com \
+    apikeys.googleapis.com \
+    generativelanguage.googleapis.com \
+    secretmanager.googleapis.com \
+    iam.googleapis.com
 ```
 
 ### 3. Create Artifact Registry Repository
@@ -108,8 +112,8 @@ cd terraform
 
 # Create terraform.tfvars file
 cat << EOF > terraform.tfvars
-project_id = "<your-project-id>"
-region = "us-central1"
+project_id = "${PROJECT_ID}"
+region = "${REGION}"
 animator_container_image = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/animator:latest"
 frontend_container_image = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/frontend:latest"
 EOF

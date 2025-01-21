@@ -9,7 +9,7 @@ resource "google_project_service" "required_apis" {
     "iam.googleapis.com",
     "storage.googleapis.com"
   ])
-  
+
   project = var.project_id
   service = each.value
 
@@ -25,13 +25,21 @@ resource "google_storage_bucket" "animator_assets" {
   name          = "${var.project_id}-animator-assets-${random_id.bucket_suffix.hex}"
   project       = var.project_id
   location      = var.region
-  force_destroy = false  # Set to true if you want to allow deletion of non-empty bucket
+  force_destroy = false
 
   uniform_bucket_level_access = true
-  
+
   versioning {
     enabled = true
   }
+}
+
+# Service account for animator service
+resource "google_service_account" "animator" {
+  depends_on   = [google_project_service.required_apis]
+  account_id   = "animator-identity"
+  display_name = "Service identity of the Animator service"
+  project      = var.project_id
 }
 
 # Grant animator service account required permissions
@@ -49,28 +57,24 @@ resource "google_project_iam_member" "animator_storage_admin" {
 
 # API key for Vertex AI and Gemini
 resource "google_apikeys_key" "animator_api_key" {
-  name         = "animator-api-key"
+  depends_on = [google_project_service.required_apis]
+  name         = "animator-service-api-key"
   display_name = "Animator Service API Key"
   project      = var.project_id
 
   restrictions {
     api_targets {
-      service = "aiplatform.googleapis.com"
-      methods = ["*"]
+      service = "aiplatform.googleapis.com"  # Vertex AI API
     }
 
     api_targets {
-      service = "generativelanguage.googleapis.com"
-      methods = ["*"]
+      service = "generativelanguage.googleapis.com"  # Generative Language API
+    }
+
+    api_targets {
+      service = "gemini.generativelanguage.googleapis.com"  # Gemini for Google Cloud API
     }
   }
-
-# Service account for animator service
-resource "google_service_account" "animator" {
-  depends_on = [google_project_service.required_apis]
-  account_id   = "animator-identity"
-  display_name = "Service identity of the Animator service"
-  project      = var.project_id
 }
 
 # Animator service
@@ -83,7 +87,7 @@ resource "google_cloud_run_v2_service" "animator" {
   template {
     containers {
       image = var.animator_container_image
-      
+
       ports {
         container_port = 8080
       }
@@ -112,10 +116,10 @@ resource "google_cloud_run_v2_service" "animator" {
 
       env {
         name = "GOOGLE_API_KEY"
-        value_from {
+        value_source {
           secret_key_ref {
-            name = google_secret_manager_secret.animator_api_key.secret_id
-            key  = "latest"
+            secret = google_secret_manager_secret.animator_api_key.secret_id
+            version = "latest"
           }
         }
       }
@@ -129,10 +133,10 @@ resource "google_cloud_run_v2_service" "animator" {
     volumes {
       name = "service-account"
       secret {
-        secret_name = google_secret_manager_secret.animator_sa_key.secret_id
+        secret = google_secret_manager_secret.animator_sa_key.secret_id
         items {
-          key  = "latest"
-          path = "key.json"
+          version = "latest"
+          path    = "key.json"
         }
       }
     }
@@ -168,7 +172,7 @@ resource "google_cloud_run_v2_service" "frontend" {
       image = var.frontend_container_image
 
       env {
-        name  = "ANIMATOR_SERVICE_URL"
+        name  = "BACKEND_SERVICE_URL"
         value = google_cloud_run_v2_service.animator.uri
       }
     }
@@ -200,7 +204,7 @@ resource "google_secret_manager_secret" "animator_api_key" {
   project   = var.project_id
 
   replication {
-    automatic = true
+    auto {}
   }
 }
 
@@ -210,11 +214,11 @@ resource "google_secret_manager_secret_version" "animator_api_key_version" {
 }
 
 resource "google_secret_manager_secret" "animator_sa_key" {
-  secret_id = "animator-service-account-key"
+  secret_id = "animator-sa-key"
   project   = var.project_id
 
   replication {
-    automatic = true
+    auto {}
   }
 }
 
