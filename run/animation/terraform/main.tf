@@ -16,13 +16,13 @@ resource "google_project_service" "required_apis" {
   disable_on_destroy = false
 }
 
-# Storage bucket for animator assets
-resource "random_id" "bucket_suffix" {
+# Resource ID suffix for GCS bucket and API key
+resource "random_id" "resource_suffix" {
   byte_length = 4
 }
 
 resource "google_storage_bucket" "animator_assets" {
-  name          = "${var.project_id}-animator-assets-${random_id.bucket_suffix.hex}"
+  name          = "${var.project_id}-animator-assets-${random_id.resource_suffix.hex}"
   project       = var.project_id
   location      = var.region
   force_destroy = false
@@ -56,9 +56,10 @@ resource "google_project_iam_member" "animator_storage_admin" {
 }
 
 # API key for Vertex AI and Gemini
+# adds a random suffix to the key name to ensure uniqueness due to apparent sof-deletion/caching issue
 resource "google_apikeys_key" "animator_api_key" {
   depends_on = [google_project_service.required_apis]
-  name         = "animator-service-api-key"
+  name         = "animator-api-key-${random_id.resource_suffix.hex}"
   display_name = "Animator Service API Key"
   project      = var.project_id
 
@@ -94,8 +95,8 @@ resource "google_cloud_run_v2_service" "animator" {
 
       resources {
         limits = {
-          cpu    = "2000m"
-          memory = "2Gi"
+          cpu    = "1000m"
+          memory = "1Gi"
         }
       }
 
