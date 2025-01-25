@@ -20,17 +20,11 @@ class BlenderScriptGenerator:
                 user_prompt=prompt
             )
             
-            # Add function calling parameters to the messages
-            messages_with_functions = formatted_prompt + [{
-                "function_call": {
-                    "name": "generate_blender_script",
-                    "arguments": self.parser.schema()
-                }
-            }]
+            # Call LLM with the formatted prompt
+            response = self.llm.invoke(formatted_prompt)
             
-            # Get structured response from LLM
-            response = self.llm.invoke(messages_with_functions)
-            parsed_response = self.parser.parse(response)
+            # Parse the response using the schema
+            parsed_response = self.parser.parse(response.content)
             
             # Convert structured response to Blender script
             return self._generate_script(parsed_response)

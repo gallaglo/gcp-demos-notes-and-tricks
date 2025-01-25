@@ -9,6 +9,7 @@ from functools import lru_cache
 from script_generator import BlenderScriptGenerator
 from blender_runner import BlenderRunner
 from gcs_uploader import GCSUploader
+from prompts import blender_prompt  # Add this import
 
 app = Flask(__name__)
 
