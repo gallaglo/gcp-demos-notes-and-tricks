@@ -31,9 +31,11 @@ def get_components():
     """Initialize and cache all components"""
     storage_client = storage.Client()
     bucket = storage_client.bucket(os.getenv('GCS_BUCKET_NAME'))
+
+    model = "gemini-2.0-flash-001"
     
     llm = ChatVertexAI(
-        model_name="gemini-1.0-flash-pro",  # Using Flash model
+        model_name=model,
         temperature=1.0,
         top_p=0.95,
         max_output_tokens=2048,  # Flash has lower token limit

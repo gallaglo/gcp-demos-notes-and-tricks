@@ -2,9 +2,8 @@ from typing import List, Dict, Any
 import logging
 import json
 from schemas import BlenderScript, Setup, Camera, Light, Object, Vector3, Material, Animation
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain.schema import SystemMessage, HumanMessage
 from langchain_google_vertexai.functions_utils import PydanticFunctionsOutputParser
-from langchain_core.output_parser import OutputParserException
 from prompts import blender_prompt
 
 logger = logging.getLogger(__name__)
@@ -29,27 +28,24 @@ class BlenderScriptGenerator:
             logger.info(f"Sending prompt to LLM: {prompt}")
             response = self.llm.invoke(messages)
             
-            # Parse the response into a BlenderScript instance
             try:
                 blender_script = self.parser.parse_result([response])
                 logger.info("Successfully parsed LLM response into BlenderScript")
                 
-                # Generate the Python script
+                # Generate the script
                 return self._generate_script(blender_script)
             
-            except OutputParserException as e:
-                logger.error(f"Failed to parse LLM response: {str(e)}")
-                # Fallback to traditional JSON parsing if function calling fails
+            except Exception as e:
+                logger.error(f"Failed to parse LLM response with function parser: {str(e)}")
+                # Fallback to traditional JSON parsing
                 content = response.content if hasattr(response, 'content') else str(response)
                 json_data = self._parse_llm_response(content)
                 
-                script_config = BlenderScript(
-                    setup=Setup(**json_data["setup"]),
-                    camera=Camera(**json_data["camera"]),
-                    lights=[Light(**light) for light in json_data["lights"]],
-                    objects=[Object(**obj) for obj in json_data["objects"]]
-                )
+                # Transform the JSON to match our schema
+                transformed_data = self._transform_json_to_schema(json_data)
                 
+                # Create BlenderScript instance using transformed data
+                script_config = BlenderScript(**transformed_data)
                 return self._generate_script(script_config)
             
         except Exception as e:
@@ -57,15 +53,10 @@ class BlenderScriptGenerator:
             raise ValueError(f"Failed to generate script: {str(e)}")
 
     def _parse_llm_response(self, content: str) -> dict:
-        """Legacy JSON parsing method as fallback."""
+        """Parse the LLM response into a dictionary."""
         try:
-            # Clean the content
+            # Clean the content to find the JSON structure
             content = content.replace('```json', '').replace('```', '').strip()
-            
-            # Remove JavaScript-style comments
-            import re
-            content = re.sub(r'//.*$', '', content, flags=re.MULTILINE)
-            content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
             
             # Find JSON structure
             start = content.find('{')
@@ -75,14 +66,119 @@ class BlenderScriptGenerator:
                 raise ValueError("No valid JSON structure found in response")
                 
             json_content = content[start:end]
-            json_content = re.sub(r',(\s*[\]}])', r'\1', json_content)
-            
             return json.loads(json_content)
             
         except Exception as e:
             logger.error(f"Error parsing response: {str(e)}")
-            logger.error(f"Content: {content}")
             raise ValueError(f"Failed to parse response: {str(e)}")
+
+    def _transform_json_to_schema(self, json_data: dict) -> dict:
+        """Transform LLM JSON output to match our Pydantic schema."""
+        try:
+            transformed = {}
+            
+            # Transform setup
+            transformed["setup"] = {
+                "frame_start": 1,
+                "frame_end": 250,
+                "world_name": json_data.get("scene_setup", {}).get("name", "Animation World")
+            }
+            
+            # Transform camera
+            cam_data = json_data.get("camera", {})
+            transformed["camera"] = {
+                "location": self._convert_to_vector3(cam_data.get("location", [10, -10, 10])),
+                "rotation": self._convert_to_vector3(cam_data.get("rotation", [0.785, 0, 0.785]))
+            }
+            
+            # Transform lights
+            transformed["lights"] = []
+            for light in json_data.get("lights", []):
+                transformed_light = {
+                    "type": self._map_light_type(light.get("type", "SUN")),
+                    "location": self._convert_to_vector3(light.get("location", [5, -5, 10])),
+                    "energy": float(light.get("energy", 5))
+                }
+                if "rotation" in light:
+                    transformed_light["rotation"] = self._convert_to_vector3(light["rotation"])
+                transformed["lights"].append(transformed_light)
+            
+            # Transform objects
+            transformed["objects"] = []
+            for obj in json_data.get("objects", []):
+                transformed_obj = {
+                    "type": self._map_object_type(obj.get("type", "uv_sphere")),
+                    "location": self._convert_to_vector3(obj.get("location", [0, 0, 0])),
+                    "parameters": {"radius": float(obj.get("radius", 1.0))} if "radius" in obj else {"size": float(obj.get("size", 2.0))},
+                }
+                
+                # Transform material
+                if "material" in obj:
+                    mat = obj["material"]
+                    transformed_obj["material"] = {
+                        "name": mat.get("name", "Material"),
+                        "color": [1.0, 0.0, 0.0, 1.0] if "color" not in mat else self._ensure_color_format(mat["color"]),
+                        "strength": float(mat.get("strength", 5))
+                    }
+                
+                # Transform animation
+                if "animation" in obj:
+                    anim = obj["animation"]
+                    transformed_obj["animation"] = {
+                        "type": "circular",
+                        "radius": float(anim.get("radius", 5.0)),
+                        "axis": anim.get("axis", "XY").upper()
+                    }
+                
+                transformed["objects"].append(transformed_obj)
+            
+            return transformed
+            
+        except Exception as e:
+            logger.error(f"Error transforming JSON: {str(e)}")
+            raise ValueError(f"Failed to transform JSON: {str(e)}")
+
+    def _convert_to_vector3(self, value) -> dict:
+        """Convert a list/tuple of coordinates to Vector3 format."""
+        if isinstance(value, (list, tuple)):
+            return {"x": float(value[0]), "y": float(value[1]), "z": float(value[2])}
+        return value
+
+    def _ensure_color_format(self, color) -> list:
+        """Ensure color is in RGBA format."""
+        if isinstance(color, (list, tuple)):
+            # Add alpha channel if missing
+            if len(color) == 3:
+                return [float(c) for c in color] + [1.0]
+            return [float(c) for c in color[:4]]
+        elif isinstance(color, dict):
+            return [
+                float(color.get("r", 1.0)),
+                float(color.get("g", 1.0)),
+                float(color.get("b", 1.0)),
+                float(color.get("a", 1.0))
+            ]
+        return [1.0, 1.0, 1.0, 1.0]
+
+    def _map_light_type(self, light_type: str) -> str:
+        """Map various light type descriptions to our supported types."""
+        light_type = light_type.upper()
+        if light_type in ["SUN", "POINT", "SPOT", "AREA"]:
+            return light_type
+        return "SUN"  # default
+
+    def _map_object_type(self, obj_type: str) -> str:
+        """Map various object type descriptions to our supported types."""
+        type_mapping = {
+            "SPHERE": "uv_sphere",
+            "BALL": "uv_sphere",
+            "UV_SPHERE": "uv_sphere",
+            "CUBE": "cube",
+            "BOX": "cube",
+            "CYLINDER": "cylinder",
+            "TUBE": "cylinder"
+        }
+        return type_mapping.get(obj_type.upper(), "uv_sphere")
 
     def _generate_script(self, config: BlenderScript) -> str:
         """Convert the BlenderScript model into a complete Python script."""
@@ -164,6 +260,7 @@ bpy.context.scene.collection.objects.link({light_name}_object)
                 )
         
         return "\n\n".join(light_parts)
+
     def _generate_object(self, obj: Object) -> str:
         """Generate code for creating and configuring an object."""
         # Create object based on type
