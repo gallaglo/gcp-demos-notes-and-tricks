@@ -1,9 +1,11 @@
 from typing import List, Dict, Any
-from langchain_core.output_parsers import PydanticOutputParser
 import logging
 import json
 from schemas import BlenderScript, Setup, Camera, Light, Object, Vector3, Material, Animation
 from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_google_vertexai.functions_utils import PydanticFunctionsOutputParser
+from langchain_core.output_parser import OutputParserException
+from prompts import blender_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -11,101 +13,58 @@ class BlenderScriptGenerator:
     def __init__(self, llm):
         """Initialize the script generator with an LLM instance."""
         self.llm = llm
+        self.parser = PydanticFunctionsOutputParser(
+            pydantic_schema={
+                "create_blender_scene": BlenderScript
+            }
+        )
 
     def generate(self, prompt: str) -> str:
         """Generate a complete Blender script from a text prompt."""
         try:
-            messages = [
-                SystemMessage(content="""You are a specialized AI that generates 3D animations using Blender.
-Your task is to output a JSON object with this EXACT structure. Copy this structure EXACTLY:
-
-{
-  "setup": {
-    "frame_start": 1,
-    "frame_end": 250,
-    "world_name": "Animation World"
-  },
-  "camera": {
-    "location": {"x": 10, "y": -10, "z": 10},
-    "rotation": {"x": 0.785, "y": 0, "z": 0.785}
-  },
-  "lights": [
-    {
-      "type": "SUN",
-      "location": {"x": 5, "y": -5, "z": 10},
-      "energy": 5
-    }
-  ],
-  "objects": [
-    {
-      "type": "uv_sphere",
-      "location": {"x": 0, "y": 0, "z": 0},
-      "parameters": {"radius": 1.0},
-      "material": {
-        "name": "Material",
-        "color": [1, 1, 1, 1],
-        "strength": 5
-      },
-      "animation": {
-        "type": "circular",
-        "radius": 5,
-        "axis": "XY"
-      }
-    }
-  ]
-}
-
-Just copy this structure and modify the values. Do not modify the structure itself."""),
-                HumanMessage(content=f"""Create a scene configuration for: {prompt}
-
-Remember:
-1. Copy the JSON structure exactly as shown above
-2. Only modify the values, not the structure
-3. Use the exact field names shown""")
-            ]
+            # Use the prompt template from prompts.py
+            messages = blender_prompt.format_messages(user_prompt=prompt)
             
             # Get response from LLM
             logger.info(f"Sending prompt to LLM: {prompt}")
             response = self.llm.invoke(messages)
             
-            # Get content from response
-            content = response.content if hasattr(response, 'content') else str(response)
-            logger.info("Raw content from LLM:")
-            logger.info(content)
+            # Parse the response into a BlenderScript instance
+            try:
+                blender_script = self.parser.parse_result([response])
+                logger.info("Successfully parsed LLM response into BlenderScript")
+                
+                # Generate the Python script
+                return self._generate_script(blender_script)
             
-            # Parse JSON response
-            json_data = self._parse_llm_response(content)
-            logger.info("Parsed JSON data:")
-            logger.info(json.dumps(json_data, indent=2))
-            
-            # Create BlenderScript instance directly
-            script_config = BlenderScript(
-                setup=Setup(**json_data["setup"]),
-                camera=Camera(**json_data["camera"]),
-                lights=[Light(**light) for light in json_data["lights"]],
-                objects=[Object(**obj) for obj in json_data["objects"]]
-            )
-            
-            logger.info("Successfully created BlenderScript instance")
-            
-            # Generate the script
-            return self._generate_script(script_config)
+            except OutputParserException as e:
+                logger.error(f"Failed to parse LLM response: {str(e)}")
+                # Fallback to traditional JSON parsing if function calling fails
+                content = response.content if hasattr(response, 'content') else str(response)
+                json_data = self._parse_llm_response(content)
+                
+                script_config = BlenderScript(
+                    setup=Setup(**json_data["setup"]),
+                    camera=Camera(**json_data["camera"]),
+                    lights=[Light(**light) for light in json_data["lights"]],
+                    objects=[Object(**obj) for obj in json_data["objects"]]
+                )
+                
+                return self._generate_script(script_config)
             
         except Exception as e:
             logger.error(f"Error generating script: {str(e)}", exc_info=True)
             raise ValueError(f"Failed to generate script: {str(e)}")
 
     def _parse_llm_response(self, content: str) -> dict:
-        """Parse the LLM response into a dictionary."""
+        """Legacy JSON parsing method as fallback."""
         try:
             # Clean the content
             content = content.replace('```json', '').replace('```', '').strip()
             
-            # Remove JavaScript-style comments (both single and multi-line)
+            # Remove JavaScript-style comments
             import re
-            # Remove single-line comments
             content = re.sub(r'//.*$', '', content, flags=re.MULTILINE)
-            # Remove multi-line comments
             content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
             
             # Find JSON structure
@@ -116,198 +75,14 @@ Remember:
                 raise ValueError("No valid JSON structure found in response")
                 
             json_content = content[start:end]
-            logger.info("Extracted JSON content:")
-            logger.info(json_content)
-            
-            # Further clean up any trailing commas
             json_content = re.sub(r',(\s*[\]}])', r'\1', json_content)
             
-            # Parse initial JSON
-            try:
-                json_data = json.loads(json_content)
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON decode error at position {e.pos}: {str(e)}")
-                logger.error(f"Context: {json_content[max(0, e.pos-50):min(len(json_content), e.pos+50)]}")
-                # Try cleaning the content more aggressively
-                cleaned = re.sub(r'[^\x20-\x7E]', '', json_content)  # Remove non-printable chars
-                cleaned = re.sub(r',\s*([\]}])', r'\1', cleaned)     # Remove trailing commas
-                json_data = json.loads(cleaned)
+            return json.loads(json_content)
             
-            logger.info("Successfully parsed JSON data")
-            
-            # Transform if needed
-            if "scene" in json_data:
-                json_data = self._transform_to_required_format(json_data)
-                logger.info("Transformed scene-based JSON to required format")
-            
-            # Validate required fields
-            required_fields = {"setup", "camera", "lights", "objects"}
-            missing_fields = required_fields - set(json_data.keys())
-            if missing_fields:
-                raise ValueError(f"Missing required fields in JSON response: {missing_fields}")
-                    
-            return json_data
-                
         except Exception as e:
             logger.error(f"Error parsing response: {str(e)}")
             logger.error(f"Content: {content}")
             raise ValueError(f"Failed to parse response: {str(e)}")
-
-    def _transform_to_required_format(self, data: dict) -> dict:
-        """Transform any non-compliant JSON into our required format."""
-        logger.info("Starting scene transformation")
-        try:
-            result = {
-                "setup": {
-                    "frame_start": 1,
-                    "frame_end": 250,
-                    "world_name": data.get("scene", {}).get("name", "Animation World")
-                },
-                "camera": {},
-                "lights": [],
-                "objects": []
-            }
-            
-            scene = data.get("scene", {})
-            
-            # Transform camera
-            if "camera" in scene:
-                cam = scene["camera"]
-                result["camera"] = {
-                    "location": {
-                        "x": float(cam.get("position", {}).get("x", 0)),
-                        "y": float(cam.get("position", {}).get("y", -10)),
-                        "z": float(cam.get("position", {}).get("z", 10))
-                    },
-                    "rotation": {
-                        "x": float(cam.get("rotation", {}).get("x", 0.785)),
-                        "y": float(cam.get("rotation", {}).get("y", 0)),
-                        "z": float(cam.get("rotation", {}).get("z", 0.785))
-                    }
-                }
-            
-            # Transform lights
-            if "lights" in scene:
-                for light in scene["lights"]:
-                    new_light = {
-                        "type": self._map_light_type(light.get("type", "SUN")),
-                        "location": {
-                            "x": float(light.get("position", {}).get("x", 5)),
-                            "y": float(light.get("position", {}).get("y", -5)),
-                            "z": float(light.get("position", {}).get("z", 10))
-                        },
-                        "energy": float(light.get("intensity", 5))
-                    }
-                    result["lights"].append(new_light)
-            
-            # Transform objects
-            if "objects" in scene:
-                for obj in scene["objects"]:
-                    new_obj = {
-                        "type": self._map_object_type(obj.get("type", "")),
-                        "location": {
-                            "x": float(obj.get("position", {}).get("x", 0)),
-                            "y": float(obj.get("position", {}).get("y", 0)),
-                            "z": float(obj.get("position", {}).get("z", 0))
-                        },
-                        "parameters": self._extract_parameters(obj),
-                        "material": self._extract_material(obj)
-                    }
-                    
-                    # Add animation if exists
-                    if "animation" in obj:
-                        new_obj["animation"] = self._extract_animation(obj["animation"])
-                    
-                    result["objects"].append(new_obj)
-            
-            logger.info("Successfully transformed scene data")
-            return result
-            
-        except Exception as e:
-            logger.error(f"Error transforming scene data: {str(e)}")
-            raise ValueError(f"Failed to transform scene data: {str(e)}")
-
-    def _map_light_type(self, light_type: str) -> str:
-        """Map various light type descriptions to our supported types."""
-        light_type = light_type.upper()
-        if light_type in ["SUN", "POINT", "SPOT", "AREA"]:
-            return light_type
-        if "DIRECT" in light_type:
-            return "SUN"
-        if "POINT" in light_type:
-            return "POINT"
-        return "SUN"
-
-    def _map_object_type(self, obj_type: str) -> str:
-        """Map various object type descriptions to our supported types."""
-        obj_type = obj_type.lower()
-        if obj_type in ["uv_sphere", "cube", "cylinder"]:
-            return obj_type
-        if obj_type in ["sphere", "ball"]:
-            return "uv_sphere"
-        if obj_type in ["box", "block"]:
-            return "cube"
-        if obj_type in ["tube", "pipe"]:
-            return "cylinder"
-        return "uv_sphere"
-
-    def _extract_parameters(self, obj: dict) -> dict:
-        """Extract object parameters based on type."""
-        params = {}
-        if "radius" in obj:
-            params["radius"] = float(obj["radius"])
-        elif "size" in obj:
-            params["size"] = float(obj["size"])
-        elif "scale" in obj:
-            scale = obj["scale"]
-            if isinstance(scale, (int, float)):
-                params["size"] = float(scale)
-            elif isinstance(scale, (list, tuple)):
-                params["size"] = float(scale[0])
-            elif isinstance(scale, dict):
-                params["size"] = float(scale.get("x", 1.0))
-        return params or {"radius": 1.0}
-
-    def _extract_material(self, obj: dict) -> dict:
-        """Extract material properties from object."""
-        mat = obj.get("material", {})
-        color = mat.get("color", {})
-        
-        # Handle different color formats
-        if isinstance(color, dict):
-            return {
-                "name": mat.get("name", "Material"),
-                "color": [
-                    float(color.get("r", 1)),
-                    float(color.get("g", 1)),
-                    float(color.get("b", 1)),
-                    1.0
-                ],
-                "strength": float(mat.get("strength", 5))
-            }
-        elif isinstance(color, (list, tuple)):
-            return {
-                "name": mat.get("name", "Material"),
-                "color": [float(c) for c in color[:3]] + [1.0],
-                "strength": float(mat.get("strength", 5))
-            }
-        
-        return {
-            "name": mat.get("name", "Material"),
-            "color": [1.0, 1.0, 1.0, 1.0],
-            "strength": float(mat.get("strength", 5))
-        }
-
-    def _extract_animation(self, anim: dict) -> dict:
-        """Extract animation properties."""
-        anim_type = anim.get("type", "circular").lower()
-        if anim_type in ["circular", "orbit", "rotate"]:
-            return {
-                "type": "circular",
-                "radius": float(anim.get("radius", 5.0)),
-                "axis": anim.get("axis", "XY").upper()
-            }
-        return None
 
     def _generate_script(self, config: BlenderScript) -> str:
         """Convert the BlenderScript model into a complete Python script."""

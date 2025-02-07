@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_vertexai import ChatVertexAI
 from google.cloud import storage
+import vertexai
 import tempfile
 import os
 import logging
@@ -9,7 +10,7 @@ from functools import lru_cache
 from script_generator import BlenderScriptGenerator
 from blender_runner import BlenderRunner
 from gcs_uploader import GCSUploader
-from prompts import blender_prompt  # Add this import
+from prompts import blender_prompt
 
 app = Flask(__name__)
 
@@ -20,17 +21,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Initialize Vertex AI
+project_id = os.getenv('GOOGLE_CLOUD_PROJECT')
+location = os.getenv('VERTEX_AI_LOCATION', 'us-central1')
+vertexai.init(project=project_id, location=location)
+
 @lru_cache()
 def get_components():
     """Initialize and cache all components"""
     storage_client = storage.Client()
     bucket = storage_client.bucket(os.getenv('GCS_BUCKET_NAME'))
     
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-1.5-pro",
-        temperature=1,
+    llm = ChatVertexAI(
+        model_name="gemini-1.0-flash-pro",  # Using Flash model
+        temperature=1.0,
         top_p=0.95,
-        max_output_tokens=8192
+        max_output_tokens=2048,  # Flash has lower token limit
+        request_timeout=60,  # Flash typically needs less time
+        max_retries=3
     )
     
     script_generator = BlenderScriptGenerator(llm)
