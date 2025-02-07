@@ -3,7 +3,6 @@ resource "google_project_service" "required_apis" {
   for_each = toset([
     "aiplatform.googleapis.com",
     "generativelanguage.googleapis.com",
-    "apikeys.googleapis.com",
     "run.googleapis.com",
     "secretmanager.googleapis.com",
     "iam.googleapis.com",
@@ -55,27 +54,10 @@ resource "google_project_iam_member" "animator_storage_admin" {
   member  = "serviceAccount:${google_service_account.animator.email}"
 }
 
-# API key for Vertex AI and Gemini
-# adds a random suffix to the key name to ensure uniqueness due to apparent sof-deletion/caching issue
-resource "google_apikeys_key" "animator_api_key" {
-  depends_on = [google_project_service.required_apis]
-  name         = "animator-api-key-${random_id.resource_suffix.hex}"
-  display_name = "Animator Service API Key"
-  project      = var.project_id
-
-  restrictions {
-    api_targets {
-      service = "aiplatform.googleapis.com"  # Vertex AI API
-    }
-
-    api_targets {
-      service = "generativelanguage.googleapis.com"  # Generative Language API
-    }
-
-    api_targets {
-      service = "gemini.generativelanguage.googleapis.com"  # Gemini for Google Cloud API
-    }
-  }
+resource "google_project_iam_member" "vertexai_user" {
+  project = var.project_id
+  role    = "roles/aiplatform.user"
+  member  = "serviceAccount:${google_service_account.animator.email}"
 }
 
 # Animator service
@@ -113,16 +95,6 @@ resource "google_cloud_run_v2_service" "animator" {
       env {
         name  = "GOOGLE_APPLICATION_CREDENTIALS"
         value = "/run/secrets/key.json"
-      }
-
-      env {
-        name = "GOOGLE_API_KEY"
-        value_source {
-          secret_key_ref {
-            secret = google_secret_manager_secret.animator_api_key.secret_id
-            version = "latest"
-          }
-        }
       }
 
       volume_mounts {
@@ -200,20 +172,6 @@ resource "google_cloud_run_service_iam_policy" "public_frontend" {
 }
 
 # Secrets
-resource "google_secret_manager_secret" "animator_api_key" {
-  secret_id = "animator-api-key"
-  project   = var.project_id
-
-  replication {
-    auto {}
-  }
-}
-
-resource "google_secret_manager_secret_version" "animator_api_key_version" {
-  secret      = google_secret_manager_secret.animator_api_key.id
-  secret_data = google_apikeys_key.animator_api_key.key_string
-}
-
 resource "google_secret_manager_secret" "animator_sa_key" {
   secret_id = "animator-sa-key"
   project   = var.project_id
