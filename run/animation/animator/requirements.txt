@@ -1,8 +1,10 @@
 flask>=2.3.3,<3.0.0
 werkzeug>=2.3.8  # Updated to fix CVE-2024-34069
-google-cloud-storage==2.9.0
+google-cloud-storage>=2.18.0,<3.0.0  # Updated to be compatible with langchain-google-vertexai
 gunicorn>=21.2.0
-langchain>=0.1.0,<0.2.0  # Compatible with langchain-google-genai 1.0.2
+langchain>=0.1.0
 langchain-core>=0.1.27
-langchain-google-genai==1.0.2
+langchain-google-vertexai>=2.0.0  # Using 2.0+ version
+google-cloud-aiplatform>=1.38.0  # Required for Vertex AI
+vertexai>=1.43.0  # Required for direct Vertex AI integration
 setuptools>=68.2.2  # Added to fix CVE-2024-6345 and CVE-2022-40897

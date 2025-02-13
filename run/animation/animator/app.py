@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_vertexai import ChatVertexAI
 from google.cloud import storage
+import vertexai
 import os
 import subprocess
 import tempfile
@@ -15,6 +16,11 @@ app = Flask(__name__)
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Initialize Vertex AI
+project_id = os.getenv('GOOGLE_CLOUD_PROJECT')
+location = os.getenv('VERTEX_AI_LOCATION', 'us-central1')
+vertexai.init(project=project_id, location=location)
 
 @lru_cache()
 def get_storage_client():
@@ -46,11 +52,13 @@ def get_bucket():
 def get_llm():
     """Creates the LLM instance using the environment variable GOOGLE_API_KEY"""
     try:
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-pro",
-            temperature=1,
+        llm = ChatVertexAI(
+            model_name="gemini-1.5-flash-002",  # Using Flash model
+            temperature=1.0,
             top_p=0.95,
-            max_output_tokens=8192
+            max_output_tokens=2048,  # Flash has lower token limit
+            request_timeout=60,  # Flash typically needs less time
+            max_retries=3
         )
         logger.info("Successfully initialized LLM")
         return llm
