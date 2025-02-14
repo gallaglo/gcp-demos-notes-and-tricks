@@ -1,21 +1,28 @@
-# Stage 1: Build environment
 FROM node:18-alpine AS builder
-
 WORKDIR /app
 
-# Install dependencies
+# First copy only package files to leverage cache for npm ci
 COPY package*.json ./
 RUN npm ci
 
-# Copy source code
-COPY . .
+# Copy config files and source code, being explicit about what we need
+COPY next.config.ts ./
+COPY tsconfig.json ./
+COPY tailwind.config.ts ./
+COPY postcss.config.mjs ./
+COPY eslint.config.mjs ./
+COPY components.json ./
+COPY next-env.d.ts ./
+COPY app/ ./app/
+COPY components/ ./components/
+COPY lib/ ./lib/
+COPY public/ ./public/
 
 # Build the application
 RUN npm run build
 
 # Stage 2: Production environment
 FROM node:18-alpine AS runner
-
 WORKDIR /app
 
 # Create a non-root user
@@ -34,9 +41,11 @@ RUN chown -R nextjs:nodejs /app
 USER nextjs
 
 # Set environment variables
-ENV NODE_ENV production
-ENV NEXT_TELEMETRY_DISABLED 1
-ENV PORT 8080
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=8080
+
+EXPOSE 8080
 
 # Start the application
 CMD ["node", "server.js"]
