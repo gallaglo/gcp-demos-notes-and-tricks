@@ -8,16 +8,20 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Slider } from "@/components/ui/slider";
+import { CameraIcon, Maximize2Icon, RotateCcw } from "lucide-react";
 
 export default function Home() {
   const [prompt, setPrompt] = useState('');
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  const [zoom, setZoom] = useState([5]); // Start with zoom level 5
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
+  const modelRef = useRef<THREE.Group | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -37,7 +41,7 @@ export default function Home() {
         0.1,
         1000
       );
-      camera.position.set(0, 0, 5);
+      camera.position.set(0, 2, 10); // Adjusted default camera position
       cameraRef.current = camera;
 
       // Renderer
@@ -52,6 +56,8 @@ export default function Home() {
       const controls = new OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.dampingFactor = 0.05;
+      controls.minDistance = 1;
+      controls.maxDistance = 100;
       controlsRef.current = controls;
 
       // Lights
@@ -87,6 +93,41 @@ export default function Home() {
     initThreeJS();
   }, []);
 
+  const resetCamera = () => {
+    if (cameraRef.current && controlsRef.current) {
+      cameraRef.current.position.set(0, 2, 10);
+      cameraRef.current.lookAt(0, 0, 0);
+      controlsRef.current.target.set(0, 0, 0);
+      controlsRef.current.update();
+    }
+  };
+
+  const fitModelToView = () => {
+    if (!modelRef.current || !cameraRef.current || !controlsRef.current) return;
+
+    const box = new THREE.Box3().setFromObject(modelRef.current);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const fov = cameraRef.current.fov * (Math.PI / 180);
+    const cameraDistance = maxDim / (2 * Math.tan(fov / 2));
+
+    cameraRef.current.position.copy(center);
+    cameraRef.current.position.z += cameraDistance * 1.5; // Add some padding
+    cameraRef.current.lookAt(center);
+    controlsRef.current.target.copy(center);
+    controlsRef.current.update();
+  };
+
+  const handleZoomChange = (value: number[]) => {
+    setZoom(value);
+    if (cameraRef.current) {
+      const newPosition = cameraRef.current.position.clone().normalize().multiplyScalar(value[0]);
+      cameraRef.current.position.copy(newPosition);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setStatus('Generating animation...');
@@ -108,10 +149,9 @@ export default function Home() {
 
       setStatus('Loading animation...');
 
-      // Load the model
       const arrayBuffer = await response.arrayBuffer();
       const loader = new GLTFLoader();
-
+      
       loader.parse(
         arrayBuffer,
         '',
@@ -123,6 +163,7 @@ export default function Home() {
             if (child.type === 'Group') sceneRef.current?.remove(child);
           });
 
+          modelRef.current = gltf.scene; // Store reference to the model
           sceneRef.current.add(gltf.scene);
 
           // Center and scale the model
@@ -131,11 +172,12 @@ export default function Home() {
           const size = box.getSize(new THREE.Vector3());
 
           const maxDim = Math.max(size.x, size.y, size.z);
-          const scale = 2 / maxDim;
+          const scale = 1 / maxDim; // Less aggressive scaling
           gltf.scene.scale.setScalar(scale);
 
           gltf.scene.position.sub(center.multiplyScalar(scale));
-
+          
+          fitModelToView(); // Auto-fit the model when loaded
           setStatus('Animation loaded successfully!');
         },
         (error) => {
@@ -183,6 +225,30 @@ export default function Home() {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
+
+      <div className="mb-4 flex gap-4">
+        <Button variant="outline" onClick={resetCamera} className="flex items-center gap-2">
+          <RotateCcw className="h-4 w-4" />
+          Reset Camera
+        </Button>
+        <Button variant="outline" onClick={fitModelToView} className="flex items-center gap-2">
+          <Maximize2Icon className="h-4 w-4" />
+          Fit to View
+        </Button>
+      </div>
+
+      <div className="mb-4 flex items-center gap-4">
+        <CameraIcon className="h-4 w-4" />
+        <div className="flex-grow">
+          <Slider
+            value={zoom}
+            onValueChange={handleZoomChange}
+            min={1}
+            max={20}
+            step={0.1}
+          />
+        </div>
+      </div>
 
       <div ref={containerRef} className="w-full h-[600px] bg-gray-100 rounded-lg" />
     </main>
