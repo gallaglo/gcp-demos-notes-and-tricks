@@ -8,15 +8,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
-import { CameraIcon, Maximize2Icon, RotateCcw, PlayIcon, PauseIcon } from "lucide-react";
+import { Maximize2Icon, RotateCcw, PlayIcon, PauseIcon } from "lucide-react";
 
 export default function Home() {
   const [prompt, setPrompt] = useState('');
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
-  const [zoom, setZoom] = useState([5]); // Start with zoom level 5
   const [isAnimationPlaying, setIsAnimationPlaying] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -137,14 +135,6 @@ export default function Home() {
     cameraRef.current.lookAt(center);
     controlsRef.current.target.copy(center);
     controlsRef.current.update();
-  };
-
-  const handleZoomChange = (value: number[]) => {
-    setZoom(value);
-    if (cameraRef.current) {
-      const newPosition = cameraRef.current.position.clone().normalize().multiplyScalar(value[0]);
-      cameraRef.current.position.copy(newPosition);
-    }
   };
 
   const toggleAnimation = () => {
@@ -322,26 +312,6 @@ export default function Home() {
                       )}
                     </Button>
                   )}
-                  
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm font-medium">
-                        <CameraIcon className="mr-2 h-4 w-4 inline-block" />
-                        Camera Zoom
-                      </label>
-                      <span className="text-sm text-muted-foreground">
-                        {zoom[0].toFixed(1)}x
-                      </span>
-                    </div>
-                    <Slider
-                      value={zoom}
-                      onValueChange={handleZoomChange}
-                      min={1}
-                      max={20}
-                      step={0.1}
-                      className="w-full"
-                    />
-                  </div>
                 </div>
               </CardContent>
             </Card>
