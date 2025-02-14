@@ -26,13 +26,15 @@ export default function Home() {
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const clockRef = useRef<THREE.Clock | null>(null);
   const animationRef = useRef<THREE.AnimationAction | null>(null);
+  const animationFrameIdRef = useRef<number | null>(null); // Store the animation frame ID
+
 
   useEffect(() => {
     if (!containerRef.current) return;
 
     const initThreeJS = () => {
       const container = containerRef.current!;
-      
+
       // Scene
       const scene = new THREE.Scene();
       scene.background = new THREE.Color(0xf0f0f0);
@@ -77,13 +79,13 @@ export default function Home() {
 
       // Animation loop
       const animate = () => {
-        requestAnimationFrame(animate);
-        
+        animationFrameIdRef.current = requestAnimationFrame(animate); // Store the frame ID
+
         if (mixerRef.current && isAnimationPlaying) {
           const delta = clockRef.current!.getDelta();
           mixerRef.current.update(delta);
         }
-        
+
         controls.update();
         renderer.render(scene, camera);
       };
@@ -101,11 +103,15 @@ export default function Home() {
       return () => {
         window.removeEventListener('resize', handleResize);
         renderer.dispose();
+        if (animationFrameIdRef.current) {
+          cancelAnimationFrame(animationFrameIdRef.current); // Cancel the animation frame
+        }
       };
     };
 
-    initThreeJS();
-  }, [isAnimationPlaying]);
+    return initThreeJS(); // Call and return the cleanup function.
+
+  }, []); // Remove isAnimationPlaying from the dependency array
 
   const resetCamera = () => {
     if (cameraRef.current && controlsRef.current) {
@@ -145,7 +151,7 @@ export default function Home() {
   const toggleAnimation = () => {
     if (animationRef.current) {
       setIsAnimationPlaying(!isAnimationPlaying);
-      
+
       if (isAnimationPlaying) {
         animationRef.current.paused = true;
       } else {
@@ -177,20 +183,20 @@ export default function Home() {
 
       const arrayBuffer = await response.arrayBuffer();
       const loader = new GLTFLoader();
-      
+
       loader.parse(
         arrayBuffer,
         '',
         (gltf: GLTF) => {
           if (!sceneRef.current) return;
-          
+
           // Remove existing model and mixer
+          if (modelRef.current) { // Check if a model exists before removing
+            sceneRef.current.remove(modelRef.current); // Remove the old model
+          }
           if (mixerRef.current) {
             mixerRef.current.stopAllAction();
           }
-          sceneRef.current.children.forEach(child => {
-            if (child.type === 'Group') sceneRef.current?.remove(child);
-          });
 
           modelRef.current = gltf.scene; // Store reference to the model
           sceneRef.current.add(gltf.scene);
@@ -205,7 +211,7 @@ export default function Home() {
           gltf.scene.scale.setScalar(scale);
 
           gltf.scene.position.sub(center.multiplyScalar(scale));
-          
+
           // Setup animation mixer
           const mixer = new THREE.AnimationMixer(gltf.scene);
           mixerRef.current = mixer;
@@ -217,7 +223,7 @@ export default function Home() {
             animationRef.current = action;
             setIsAnimationPlaying(true);
           }
-          
+
           fitModelToView(); // Auto-fit the model when loaded
           setStatus('Animation loaded successfully!');
         },
@@ -239,7 +245,7 @@ export default function Home() {
   return (
     <main className="container mx-auto p-4">
       <h1 className="text-4xl font-bold mb-8">Animation Generator</h1>
-      
+
       <Card className="mb-8">
         <CardContent className="pt-6">
           <form onSubmit={handleSubmit}>
