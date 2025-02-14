@@ -9,7 +9,19 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
-import { Maximize2Icon, RotateCcw, PlayIcon, PauseIcon } from "lucide-react";
+import { Maximize2Icon, RotateCcw, PlayIcon, PauseIcon, Sparkles } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+const EXAMPLE_PROMPTS = [
+  "planets orbiting sun in solar system",
+  "tumbling cube",
+  "bouncing ball"
+];
 
 export default function Home() {
   const [prompt, setPrompt] = useState('');
@@ -246,12 +258,37 @@ export default function Home() {
             <Card>
               <CardContent className="pt-6">
                 <form onSubmit={handleSubmit} className="space-y-4">
-                  <Textarea
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    placeholder="Describe your animation..."
-                    className="min-h-[150px]"
-                  />
+                  <div className="flex flex-col gap-2">
+                    <div className="flex justify-between items-center">
+                      <label className="text-sm text-muted-foreground">
+                        Enter prompt or select an example
+                      </label>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="sm">
+                            <Sparkles className="mr-2 h-4 w-4" />
+                            Examples
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {EXAMPLE_PROMPTS.map((examplePrompt) => (
+                            <DropdownMenuItem
+                              key={examplePrompt}
+                              onClick={() => setPrompt(examplePrompt)}
+                            >
+                              {examplePrompt}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                    <Textarea
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      placeholder="Describe your animation..."
+                      className="min-h-[150px]"
+                    />
+                  </div>
                   <Button type="submit" className="w-full">
                     Generate Animation
                   </Button>
