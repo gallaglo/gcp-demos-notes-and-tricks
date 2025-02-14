@@ -1,5 +1,49 @@
+# Dependencies
 node_modules
-.git
+.pnp
+.pnp.js
+yarn-debug.log*
+yarn-error.log*
+npm-debug.log*
+
+# Build outputs
 .next
-*.md
+out
+build
+dist
+
+# Version control
+.git
+.gitignore
+
+# Environment files
 .env*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Docker related
+Dockerfile
+.dockerignore
+docker-compose*
+
+# Development files
+*.md
+README.md
+CHANGELOG.md
+.editorconfig
+.prettierrc
+.eslintrc
+.eslintcache
+tsconfig.tsbuildinfo
+
+# IDE specific
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS specific
+.DS_Store
+Thumbs.db
