@@ -8,14 +8,25 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Slider } from "@/components/ui/slider";
-import { CameraIcon, Maximize2Icon, RotateCcw, PlayIcon, PauseIcon } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import { Maximize2Icon, RotateCcw, PlayIcon, PauseIcon, Sparkles } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+const EXAMPLE_PROMPTS = [
+  "planets orbiting sun in solar system",
+  "tumbling cube",
+  "bouncing ball"
+];
 
 export default function Home() {
   const [prompt, setPrompt] = useState('');
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
-  const [zoom, setZoom] = useState([5]); // Start with zoom level 5
   const [isAnimationPlaying, setIsAnimationPlaying] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -26,8 +37,7 @@ export default function Home() {
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const clockRef = useRef<THREE.Clock | null>(null);
   const animationRef = useRef<THREE.AnimationAction | null>(null);
-  const animationFrameIdRef = useRef<number | null>(null); // Store the animation frame ID
-
+  const animationFrameIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -47,7 +57,7 @@ export default function Home() {
         0.1,
         1000
       );
-      camera.position.set(0, 2, 10); // Adjusted default camera position
+      camera.position.set(0, 2, 10);
       cameraRef.current = camera;
 
       // Renderer
@@ -79,7 +89,7 @@ export default function Home() {
 
       // Animation loop
       const animate = () => {
-        animationFrameIdRef.current = requestAnimationFrame(animate); // Store the frame ID
+        animationFrameIdRef.current = requestAnimationFrame(animate);
 
         if (mixerRef.current && isAnimationPlaying) {
           const delta = clockRef.current!.getDelta();
@@ -104,14 +114,13 @@ export default function Home() {
         window.removeEventListener('resize', handleResize);
         renderer.dispose();
         if (animationFrameIdRef.current) {
-          cancelAnimationFrame(animationFrameIdRef.current); // Cancel the animation frame
+          cancelAnimationFrame(animationFrameIdRef.current);
         }
       };
     };
 
-    return initThreeJS(); // Call and return the cleanup function.
-
-  }, []); // Remove isAnimationPlaying from the dependency array
+    return initThreeJS();
+  }, []);
 
   const resetCamera = () => {
     if (cameraRef.current && controlsRef.current) {
@@ -134,24 +143,15 @@ export default function Home() {
     const cameraDistance = maxDim / (2 * Math.tan(fov / 2));
 
     cameraRef.current.position.copy(center);
-    cameraRef.current.position.z += cameraDistance * 1.5; // Add some padding
+    cameraRef.current.position.z += cameraDistance * 1.5;
     cameraRef.current.lookAt(center);
     controlsRef.current.target.copy(center);
     controlsRef.current.update();
   };
 
-  const handleZoomChange = (value: number[]) => {
-    setZoom(value);
-    if (cameraRef.current) {
-      const newPosition = cameraRef.current.position.clone().normalize().multiplyScalar(value[0]);
-      cameraRef.current.position.copy(newPosition);
-    }
-  };
-
   const toggleAnimation = () => {
     if (animationRef.current) {
       setIsAnimationPlaying(!isAnimationPlaying);
-
       if (isAnimationPlaying) {
         animationRef.current.paused = true;
       } else {
@@ -191,14 +191,14 @@ export default function Home() {
           if (!sceneRef.current) return;
 
           // Remove existing model and mixer
-          if (modelRef.current) { // Check if a model exists before removing
-            sceneRef.current.remove(modelRef.current); // Remove the old model
+          if (modelRef.current) {
+            sceneRef.current.remove(modelRef.current);
           }
           if (mixerRef.current) {
             mixerRef.current.stopAllAction();
           }
 
-          modelRef.current = gltf.scene; // Store reference to the model
+          modelRef.current = gltf.scene;
           sceneRef.current.add(gltf.scene);
 
           // Center and scale the model
@@ -207,7 +207,7 @@ export default function Home() {
           const size = box.getSize(new THREE.Vector3());
 
           const maxDim = Math.max(size.x, size.y, size.z);
-          const scale = 1 / maxDim; // Less aggressive scaling
+          const scale = 1 / maxDim;
           gltf.scene.scale.setScalar(scale);
 
           gltf.scene.position.sub(center.multiplyScalar(scale));
@@ -224,7 +224,7 @@ export default function Home() {
             setIsAnimationPlaying(true);
           }
 
-          fitModelToView(); // Auto-fit the model when loaded
+          fitModelToView();
           setStatus('Animation loaded successfully!');
         },
         (error) => {
@@ -243,76 +243,127 @@ export default function Home() {
   };
 
   return (
-    <main className="container mx-auto p-4">
-      <h1 className="text-4xl font-bold mb-8">Animation Generator</h1>
-
-      <Card className="mb-8">
-        <CardContent className="pt-6">
-          <form onSubmit={handleSubmit}>
-            <Textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Describe your animation..."
-              className="mb-4"
-              rows={4}
-            />
-            <Button type="submit">Generate Animation</Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      {status && (
-        <Alert className="mb-4">
-          <AlertDescription>{status}</AlertDescription>
-        </Alert>
-      )}
-
-      {error && (
-        <Alert variant="destructive" className="mb-4">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      <div className="mb-4 flex gap-4">
-        <Button variant="outline" onClick={resetCamera} className="flex items-center gap-2">
-          <RotateCcw className="h-4 w-4" />
-          Reset Camera
-        </Button>
-        <Button variant="outline" onClick={fitModelToView} className="flex items-center gap-2">
-          <Maximize2Icon className="h-4 w-4" />
-          Fit to View
-        </Button>
-        {animationRef.current && (
-          <Button variant="outline" onClick={toggleAnimation} className="flex items-center gap-2">
-            {isAnimationPlaying ? (
-              <>
-                <PauseIcon className="h-4 w-4" />
-                Pause
-              </>
-            ) : (
-              <>
-                <PlayIcon className="h-4 w-4" />
-                Play
-              </>
-            )}
-          </Button>
-        )}
+    <div className="flex h-screen flex-col">
+      <div className="container flex flex-col gap-4 p-4 lg:p-8">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold">Animation Generator</h1>
+        </div>
+        <Separator />
       </div>
+      
+      <div className="container grid flex-1 gap-6 md:grid-cols-[380px_1fr] lg:p-8">
+        {/* Left Panel - Controls */}
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4">
+            <Card>
+              <CardContent className="pt-6">
+                <form onSubmit={handleSubmit} className="space-y-4">
+                  <div className="flex flex-col gap-2">
+                    <div className="flex justify-between items-center">
+                      <label className="text-sm text-muted-foreground">
+                        Enter prompt or select an example
+                      </label>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="sm">
+                            <Sparkles className="mr-2 h-4 w-4" />
+                            Examples
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {EXAMPLE_PROMPTS.map((examplePrompt) => (
+                            <DropdownMenuItem
+                              key={examplePrompt}
+                              onClick={() => setPrompt(examplePrompt)}
+                            >
+                              {examplePrompt}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                    <Textarea
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      placeholder="Describe your animation..."
+                      className="min-h-[150px]"
+                    />
+                  </div>
+                  <Button type="submit" className="w-full">
+                    Generate Animation
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
 
-      <div className="mb-4 flex items-center gap-4">
-        <CameraIcon className="h-4 w-4" />
-        <div className="flex-grow">
-          <Slider
-            value={zoom}
-            onValueChange={handleZoomChange}
-            min={1}
-            max={20}
-            step={0.1}
-          />
+            {status && (
+              <Alert>
+                <AlertDescription>{status}</AlertDescription>
+              </Alert>
+            )}
+
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            <Card>
+              <CardContent className="pt-6 space-y-4">
+                <div className="space-y-4">
+                  <div className="flex gap-2">
+                    <Button 
+                      variant="outline" 
+                      onClick={resetCamera} 
+                      className="flex-1"
+                    >
+                      <RotateCcw className="mr-2 h-4 w-4" />
+                      Reset Camera
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      onClick={fitModelToView}
+                      className="flex-1"
+                    >
+                      <Maximize2Icon className="mr-2 h-4 w-4" />
+                      Fit to View
+                    </Button>
+                  </div>
+                  
+                  {animationRef.current && (
+                    <Button 
+                      variant="outline" 
+                      onClick={toggleAnimation}
+                      className="w-full"
+                    >
+                      {isAnimationPlaying ? (
+                        <>
+                          <PauseIcon className="mr-2 h-4 w-4" />
+                          Pause Animation
+                        </>
+                      ) : (
+                        <>
+                          <PlayIcon className="mr-2 h-4 w-4" />
+                          Play Animation
+                        </>
+                      )}
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        {/* Right Panel - Preview */}
+        <div className="flex flex-col gap-4">
+          <Card className="flex-1">
+            <CardContent className="p-0">
+              <div ref={containerRef} className="w-full h-[calc(100vh-12rem)] rounded-lg" />
+            </CardContent>
+          </Card>
         </div>
       </div>
-
-      <div ref={containerRef} className="w-full h-[600px] bg-gray-100 rounded-lg" />
-    </main>
+    </div>
   );
 }
