@@ -9,19 +9,23 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Slider } from "@/components/ui/slider";
-import { CameraIcon, Maximize2Icon, RotateCcw } from "lucide-react";
+import { CameraIcon, Maximize2Icon, RotateCcw, PlayIcon, PauseIcon } from "lucide-react";
 
 export default function Home() {
   const [prompt, setPrompt] = useState('');
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [zoom, setZoom] = useState([5]); // Start with zoom level 5
+  const [isAnimationPlaying, setIsAnimationPlaying] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const modelRef = useRef<THREE.Group | null>(null);
+  const mixerRef = useRef<THREE.AnimationMixer | null>(null);
+  const clockRef = useRef<THREE.Clock | null>(null);
+  const animationRef = useRef<THREE.AnimationAction | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -67,9 +71,19 @@ export default function Home() {
       directionalLight.position.set(0, 1, 0);
       scene.add(directionalLight);
 
+      // Clock for animation
+      const clock = new THREE.Clock();
+      clockRef.current = clock;
+
       // Animation loop
       const animate = () => {
         requestAnimationFrame(animate);
+        
+        if (mixerRef.current && isAnimationPlaying) {
+          const delta = clockRef.current!.getDelta();
+          mixerRef.current.update(delta);
+        }
+        
         controls.update();
         renderer.render(scene, camera);
       };
@@ -91,7 +105,7 @@ export default function Home() {
     };
 
     initThreeJS();
-  }, []);
+  }, [isAnimationPlaying]);
 
   const resetCamera = () => {
     if (cameraRef.current && controlsRef.current) {
@@ -128,6 +142,18 @@ export default function Home() {
     }
   };
 
+  const toggleAnimation = () => {
+    if (animationRef.current) {
+      setIsAnimationPlaying(!isAnimationPlaying);
+      
+      if (isAnimationPlaying) {
+        animationRef.current.paused = true;
+      } else {
+        animationRef.current.paused = false;
+      }
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setStatus('Generating animation...');
@@ -158,7 +184,10 @@ export default function Home() {
         (gltf: GLTF) => {
           if (!sceneRef.current) return;
           
-          // Remove existing model
+          // Remove existing model and mixer
+          if (mixerRef.current) {
+            mixerRef.current.stopAllAction();
+          }
           sceneRef.current.children.forEach(child => {
             if (child.type === 'Group') sceneRef.current?.remove(child);
           });
@@ -176,6 +205,18 @@ export default function Home() {
           gltf.scene.scale.setScalar(scale);
 
           gltf.scene.position.sub(center.multiplyScalar(scale));
+          
+          // Setup animation mixer
+          const mixer = new THREE.AnimationMixer(gltf.scene);
+          mixerRef.current = mixer;
+
+          // Play first animation if available
+          if (gltf.animations.length > 0) {
+            const action = mixer.clipAction(gltf.animations[0]);
+            action.play();
+            animationRef.current = action;
+            setIsAnimationPlaying(true);
+          }
           
           fitModelToView(); // Auto-fit the model when loaded
           setStatus('Animation loaded successfully!');
@@ -235,6 +276,21 @@ export default function Home() {
           <Maximize2Icon className="h-4 w-4" />
           Fit to View
         </Button>
+        {animationRef.current && (
+          <Button variant="outline" onClick={toggleAnimation} className="flex items-center gap-2">
+            {isAnimationPlaying ? (
+              <>
+                <PauseIcon className="h-4 w-4" />
+                Pause
+              </>
+            ) : (
+              <>
+                <PlayIcon className="h-4 w-4" />
+                Play
+              </>
+            )}
+          </Button>
+        )}
       </div>
 
       <div className="mb-4 flex items-center gap-4">
