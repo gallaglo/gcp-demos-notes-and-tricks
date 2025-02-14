@@ -24,7 +24,7 @@ resource "google_storage_bucket" "animator_assets" {
   name          = "${var.project_id}-animator-assets-${random_id.bucket_suffix.hex}"
   project       = var.project_id
   location      = var.region
-  force_destroy = false
+  force_destroy = true
 
   uniform_bucket_level_access = true
 
@@ -42,10 +42,11 @@ resource "google_service_account" "animator" {
 }
 
 # Grant animator service account required permissions
-resource "google_project_iam_member" "animator_secret_accessor" {
-  project = var.project_id
-  role    = "roles/secretmanager.secretAccessor"
-  member  = "serviceAccount:${google_service_account.animator.email}"
+resource "google_secret_manager_secret_iam_member" "animator_secret_accessor" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.animator_sa_key.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.animator.email}"
 }
 
 resource "google_project_iam_member" "animator_storage_admin" {
@@ -62,6 +63,10 @@ resource "google_project_iam_member" "vertexai_user" {
 
 # Animator service
 resource "google_cloud_run_v2_service" "animator" {
+  depends_on           = [
+    google_secret_manager_secret.animator_sa_key,
+    google_secret_manager_secret_version.animator_sa_key_version
+  ]
   name                = "animator"
   location            = var.region
   project             = var.project_id
