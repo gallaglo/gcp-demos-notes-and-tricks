@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { Maximize2Icon, RotateCcw, PlayIcon, PauseIcon, Sparkles } from "lucide-react";
+import { retryWithBackoff } from '@/lib/utils';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -164,7 +165,7 @@ export default function Home() {
     e.preventDefault();
     setStatus('Generating animation...');
     setError('');
-
+  
     try {
       const response = await fetch('/api/generate', {
         method: 'POST',
@@ -173,65 +174,78 @@ export default function Home() {
         },
         body: JSON.stringify({ prompt }),
       });
-
+  
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(errorText);
       }
-
+  
       setStatus('Loading animation...');
-
+  
       const arrayBuffer = await response.arrayBuffer();
       const loader = new GLTFLoader();
-
-      loader.parse(
-        arrayBuffer,
-        '',
-        (gltf: GLTF) => {
-          if (!sceneRef.current) return;
-
-          // Remove existing model and mixer
-          if (modelRef.current) {
-            sceneRef.current.remove(modelRef.current);
-          }
-          if (mixerRef.current) {
-            mixerRef.current.stopAllAction();
-          }
-
-          modelRef.current = gltf.scene;
-          sceneRef.current.add(gltf.scene);
-
-          // Center and scale the model
-          const box = new THREE.Box3().setFromObject(gltf.scene);
-          const center = box.getCenter(new THREE.Vector3());
-          const size = box.getSize(new THREE.Vector3());
-
-          const maxDim = Math.max(size.x, size.y, size.z);
-          const scale = 1 / maxDim;
-          gltf.scene.scale.setScalar(scale);
-
-          gltf.scene.position.sub(center.multiplyScalar(scale));
-
-          // Setup animation mixer
-          const mixer = new THREE.AnimationMixer(gltf.scene);
-          mixerRef.current = mixer;
-
-          // Play first animation if available
-          if (gltf.animations.length > 0) {
-            const action = mixer.clipAction(gltf.animations[0]);
-            action.play();
-            animationRef.current = action;
-            setIsAnimationPlaying(true);
-          }
-
-          fitModelToView();
-          setStatus('Animation loaded successfully!');
+  
+      // Add a promise wrapper around the GLTF loader
+      const loadModel = () => new Promise((resolve, reject) => {
+        loader.parse(
+          arrayBuffer,
+          '',
+          (gltf: GLTF) => resolve(gltf),
+          (error) => reject(error)
+        );
+      });
+  
+      // Use retryWithBackoff for model loading
+      const gltf = await retryWithBackoff(
+        () => loadModel() as Promise<GLTF>,
+        {
+          maxAttempts: 3,
+          initialDelay: 1000,
+          maxDelay: 5000,
         },
-        (error) => {
-          console.error('Error loading GLB:', error);
-          setError(`Error loading animation: ${error.message || 'Failed to load GLB file'}`);
+        (context) => {
+          setStatus(`Retrying animation load... (Attempt ${context.attempt}/${context.maxAttempts})`);
         }
       );
+  
+      if (!sceneRef.current) return;
+  
+      // Remove existing model and mixer
+      if (modelRef.current) {
+        sceneRef.current.remove(modelRef.current);
+      }
+      if (mixerRef.current) {
+        mixerRef.current.stopAllAction();
+      }
+  
+      modelRef.current = gltf.scene;
+      sceneRef.current.add(gltf.scene);
+  
+      // Center and scale the model
+      const box = new THREE.Box3().setFromObject(gltf.scene);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+  
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const scale = 1 / maxDim;
+      gltf.scene.scale.setScalar(scale);
+  
+      gltf.scene.position.sub(center.multiplyScalar(scale));
+  
+      // Setup animation mixer
+      const mixer = new THREE.AnimationMixer(gltf.scene);
+      mixerRef.current = mixer;
+  
+      // Play first animation if available
+      if (gltf.animations.length > 0) {
+        const action = mixer.clipAction(gltf.animations[0]);
+        action.play();
+        animationRef.current = action;
+        setIsAnimationPlaying(true);
+      }
+  
+      fitModelToView();
+      setStatus('Animation loaded successfully!');
     } catch (error) {
       console.error('Error:', error);
       if (error instanceof Error) {
