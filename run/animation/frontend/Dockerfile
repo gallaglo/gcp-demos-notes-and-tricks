@@ -5,14 +5,12 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 
-# Copy config files and source code, being explicit about what we need
-COPY next.config.ts ./
-COPY tsconfig.json ./
-COPY tailwind.config.ts ./
-COPY postcss.config.mjs ./
-COPY eslint.config.mjs ./
-COPY components.json ./
-COPY next-env.d.ts ./
+# Copy configuration files
+COPY *.ts ./
+COPY *.mjs ./
+COPY *.json ./
+
+# Copy source code
 COPY app/ ./app/
 COPY components/ ./components/
 COPY lib/ ./lib/
