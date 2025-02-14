@@ -277,6 +277,20 @@ class GCSUploader:
             logger.error(f"Error in GCS operation: {str(e)}")
             raise
 
+@app.route('/health')
+def health():
+    """Basic endpoint for Cloud Run startup probe."""
+    try:
+        return jsonify({
+            'status': 'healthy',
+            'time': datetime.datetime.utcnow().isoformat()
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e)
+        }), 500
+
 @app.route('/generate', methods=['POST'])
 def generate():
     if not request.content_type or 'application/json' not in request.content_type:

@@ -82,6 +82,27 @@ resource "google_cloud_run_v2_service" "animator" {
         }
       }
 
+      startup_probe {
+        initial_delay_seconds = 15
+        timeout_seconds = 15
+        period_seconds = 10
+        failure_threshold = 3
+        http_get {
+          path = "/health"
+          port = 8080
+        }
+      }
+
+      liveness_probe {
+        http_get {
+          path = "/health"
+          port = 8080
+        }
+        period_seconds = 30
+        timeout_seconds = 10
+        failure_threshold = 3
+      }
+
       env {
         name  = "GCS_BUCKET_NAME"
         value = google_storage_bucket.animator_assets.name
