@@ -17,16 +17,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libx11-6 \
     libxcursor1 \
     libxinerama1 \
+    libglu1-mesa \
     # Explicitly install newer versions of vulnerable packages
     zlib1g \
     libexpat1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Download and install specific Blender version
-RUN wget https://download.blender.org/release/Blender2.93/blender-2.93.9-linux-x64.tar.xz \
-    && tar -xf blender-2.93.9-linux-x64.tar.xz \
-    && mv blender-2.93.9-linux-x64 /usr/local/blender \
-    && rm blender-2.93.9-linux-x64.tar.xz
+RUN wget https://download.blender.org/release/Blender4.0/blender-4.0.2-linux-x64.tar.xz \
+    && tar -xf blender-4.0.2-linux-x64.tar.xz \
+    && mv blender-4.0.2-linux-x64 /usr/local/blender \
+    && rm blender-4.0.2-linux-x64.tar.xz
 
 # Add Blender to PATH
 ENV PATH="/usr/local/blender:${PATH}"
@@ -40,8 +41,8 @@ RUN useradd -m -s /bin/bash blenderuser && \
 
 # Set Blender environment variables
 ENV BLENDER_USER_CONFIG=/tmp/blender-config \
-    BLENDER_USER_SCRIPTS=/usr/local/blender/2.93/scripts \
-    BLENDER_SYSTEM_SCRIPTS=/usr/local/blender/2.93/scripts \
+    BLENDER_USER_SCRIPTS=/usr/local/blender/4.0/scripts \
+    BLENDER_SYSTEM_SCRIPTS=/usr/local/blender/4.0/scripts \
     XDG_CONFIG_HOME=/tmp/blender-config
 
 # Switch to non-root user
