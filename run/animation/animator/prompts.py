@@ -2,62 +2,65 @@
 This module contains prompt templates for the Blender animation generator.
 """
 
+import os
 from langchain.prompts import PromptTemplate
 
-BLENDER_TEMPLATE = """Create a Python script for Blender that will generate a 3D animation based on this description:
-{user_prompt}
+def load_blender_operators():
+    """Load Blender operators from the operators file."""
+    ops_path = os.path.join(os.path.dirname(__file__), 'blender-4.3-ops.txt')
+    try:
+        with open(ops_path, 'r') as f:
+            return [line.strip() for line in f if line.strip()]
+    except FileNotFoundError:
+        raise Exception(f"Blender operators file not found at: {ops_path}")
 
-The script must start with this exact code for handling the output path and imports:
-```python
-import bpy
-import sys
-import math
-from math import sin, cos, pi, radians
+# Load operators at module level
+BLENDER_OPERATORS = load_blender_operators()
 
-# Get output path from command line arguments
-if "--" not in sys.argv:
-    raise Exception("Please provide the output path after '--'")
-output_path = sys.argv[sys.argv.index("--") + 1]
-```
+ENHANCED_BLENDER_TEMPLATE = '''You are a specialized Python code generator for Blender 4.3. Your purpose is to generate Python scripts that create 3D animations based on user requests. You must follow these strict rules:
 
-Then include these essential components in this exact order:
+1. Output Format:
+   - Generate ONLY valid Python code
+   - Do not include any explanatory text or markdown
+   - Do not include conversation or explanations
+   - If the request is invalid, return an empty string
 
-1. Basic Setup:
-   - Clear existing objects:
-     ```python
-     bpy.ops.object.select_all(action='SELECT')
-     bpy.ops.object.delete()
-     ```
-   - Set frame range (start=1, end=250 for 10-second animation at 25fps):
-     ```python
-     bpy.context.scene.frame_start = 1
-     bpy.context.scene.frame_end = 250
-     ```
-   - Create and setup world (EXACTLY like this):
-     ```python
-     world = bpy.data.worlds.new(name="Animation World")
-     bpy.context.scene.world = world
-     world.use_nodes = True
-     ```
+2. Required Code Structure:
+   Always start with this exact setup code:
+   import bpy
+   import sys
+   import math
+   from math import sin, cos, pi, radians
+   
+   # Get output path from command line arguments
+   if "--" not in sys.argv:
+       raise Exception("Please provide the output path after '--'")
+   output_path = sys.argv[sys.argv.index("--") + 1]
+   
+   # Clear existing objects
+   bpy.ops.object.select_all(action='SELECT')
+   bpy.ops.object.delete()
+   
+   # Set frame range (start=1, end=250 for 10-second animation at 25fps)
+   bpy.context.scene.frame_start = 1
+   bpy.context.scene.frame_end = 250
+   
+   # Setup world
+   world = bpy.data.worlds.new(name="Animation World")
+   bpy.context.scene.world = world
+   world.use_nodes = True
 
-2. Camera Setup (EXACTLY like this):
-   ```python
+3. Required Scene Components:
+   Always include this exact camera and lighting setup:
    # Create camera
    camera_data = bpy.data.cameras.new(name="Camera")
    camera_object = bpy.data.objects.new("Camera", camera_data)
    bpy.context.scene.collection.objects.link(camera_object)
-   
-   # Set camera location and rotation
    camera_object.location = (10, -10, 10)
    camera_object.rotation_euler = (radians(45), 0, radians(45))
-   
-   # Make this the active camera
    bpy.context.scene.camera = camera_object
-   ```
-
-3. Lighting Setup (EXACTLY like this):
-   ```python
-   # Create key light
+   
+   # Create lights
    key_light_data = bpy.data.lights.new(name="Key Light", type='SUN')
    key_light_object = bpy.data.objects.new(name="Key Light", object_data=key_light_data)
    bpy.context.scene.collection.objects.link(key_light_object)
@@ -65,75 +68,14 @@ Then include these essential components in this exact order:
    key_light_object.rotation_euler = (radians(30), radians(15), radians(20))
    key_light_data.energy = 5
    
-   # Create fill light
    fill_light_data = bpy.data.lights.new(name="Fill Light", type='SUN')
    fill_light_object = bpy.data.objects.new(name="Fill Light", object_data=fill_light_data)
    bpy.context.scene.collection.objects.link(fill_light_object)
    fill_light_object.location = (-8, -4, 8)
    fill_light_data.energy = 2
-   ```
 
-4. Scene Requirements:
-   For creating objects, ALWAYS use these exact patterns:
-   
-   For a UV Sphere:
-   ```python
-   bpy.ops.mesh.primitive_uv_sphere_add(radius=1.0, location=(0, 0, 0))
-   sphere = bpy.context.active_object
-   ```
-   
-   For a Cube:
-   ```python
-   bpy.ops.mesh.primitive_cube_add(size=2.0, location=(0, 0, 0))
-   cube = bpy.context.active_object
-   ```
-   
-   For a Cylinder:
-   ```python
-   bpy.ops.mesh.primitive_cylinder_add(radius=1.0, depth=2.0, location=(0, 0, 0))
-   cylinder = bpy.context.active_object
-   ```
-   
-   For circular motion animation:
-   ```python
-   # Example of circular motion
-   radius = 5
-   for frame in range(1, 251):
-       angle = (frame / 250) * 2 * pi  # Convert frame to angle
-       x = radius * cos(angle)
-       y = radius * sin(angle)
-       z = 0
-       
-       obj.location = (x, y, z)
-       obj.keyframe_insert(data_path="location", frame=frame)
-   ```
-
-   For Materials:
-   ```python
-   material = bpy.data.materials.new(name="Material Name")
-   material.use_nodes = True
-   nodes = material.node_tree.nodes
-   # Clear default nodes
-   nodes.clear()
-   # Create emission node
-   node_emission = nodes.new(type='ShaderNodeEmission')
-   node_emission.inputs[0].default_value = (1, 1, 1, 1)  # Color (RGBA)
-   node_emission.inputs[1].default_value = 5.0  # Strength
-   # Create output node
-   node_output = nodes.new(type='ShaderNodeOutputMaterial')
-   # Link nodes
-   links = material.node_tree.links
-   links.new(node_emission.outputs[0], node_output.inputs[0])
-   # Assign material to object
-   if obj.data.materials:
-       obj.data.materials[0] = material
-   else:
-       obj.data.materials.append(material)
-   ```
-
-5. Animation Export:
-   Use EXACTLY this export code at the end of the script:
-   ```python
+4. Required Export:
+   Always end with this exact export code:
    bpy.ops.export_scene.gltf(
        filepath=output_path,
        export_format='GLB',
@@ -141,14 +83,55 @@ Then include these essential components in this exact order:
        export_cameras=True,
        export_lights=True
    )
-   ```
 
-The script must run without GUI (headless mode) and include proper error handling.
-Always use the exact code patterns shown above for creating objects, materials, and animations.
-Always use math functions with the proper import and use radians() for angles.
-Do not try to use any attributes or methods that aren't shown in the examples above."""
+5. Code Patterns:
+   Use these exact patterns for common operations:
+   
+   For primitive objects:
+   bpy.ops.mesh.primitive_uv_sphere_add(radius=1.0, location=(0, 0, 0))
+   sphere = bpy.context.active_object
+   
+   bpy.ops.mesh.primitive_cube_add(size=2.0, location=(0, 0, 0))
+   cube = bpy.context.active_object
+   
+   bpy.ops.mesh.primitive_cylinder_add(radius=1.0, depth=2.0, location=(0, 0, 0))
+   cylinder = bpy.context.active_object
+   
+   For materials:
+   material = bpy.data.materials.new(name="Material Name")
+   material.use_nodes = True
+   nodes = material.node_tree.nodes
+   nodes.clear()
+   node_emission = nodes.new(type='ShaderNodeEmission')
+   node_emission.inputs[0].default_value = (1, 1, 1, 1)
+   node_emission.inputs[1].default_value = 5.0
+   node_output = nodes.new(type='ShaderNodeOutputMaterial')
+   links = material.node_tree.links
+   links.new(node_emission.outputs[0], node_output.inputs[0])
+   if obj.data.materials:
+       obj.data.materials[0] = material
+   else:
+       obj.data.materials.append(material)
+   
+   For animations:
+   # Circular motion
+   radius = 5
+   for frame in range(1, 251):
+       angle = (frame / 250) * 2 * pi
+       x = radius * cos(angle)
+       y = radius * sin(angle)
+       z = 0
+       obj.location = (x, y, z)
+       obj.keyframe_insert(data_path="location", frame=frame)
+
+6. Available Operators:
+{operator_list}
+
+Generate a Python script for this animation request:
+{user_prompt}
+'''
 
 BLENDER_PROMPT = PromptTemplate(
     template=BLENDER_TEMPLATE,
-    input_variables=["user_prompt"]
+    input_variables=["user_prompt", "operators"]
 )

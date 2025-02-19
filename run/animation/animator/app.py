@@ -79,8 +79,11 @@ class BlenderScriptGenerator:
     def generate(self, prompt: str) -> str:
         try:
             logger.info("Sending prompt to LLM")
-            # Use the LangChain prompt template
-            formatted_prompt = BLENDER_PROMPT.format(user_prompt=prompt)
+            # Use the LangChain prompt template with operators
+            formatted_prompt = BLENDER_PROMPT.format(
+                user_prompt=prompt,
+                operators="\n".join(BLENDER_OPERATORS)  # Include operators in prompt
+            )
             response = llm.invoke(formatted_prompt)
             
             # Extract content from AIMessage
