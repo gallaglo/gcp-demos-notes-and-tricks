@@ -63,7 +63,7 @@ resource "google_project_iam_member" "vertexai_user" {
 
 # Animator service
 resource "google_cloud_run_v2_service" "animator" {
-  depends_on           = [
+  depends_on = [
     google_secret_manager_secret.animator_sa_key,
     google_secret_manager_secret_version.animator_sa_key_version
   ]
@@ -89,9 +89,9 @@ resource "google_cloud_run_v2_service" "animator" {
 
       startup_probe {
         initial_delay_seconds = 15
-        timeout_seconds = 15
-        period_seconds = 10
-        failure_threshold = 3
+        timeout_seconds       = 15
+        period_seconds        = 10
+        failure_threshold     = 3
         http_get {
           path = "/health"
           port = 8080
@@ -103,8 +103,8 @@ resource "google_cloud_run_v2_service" "animator" {
           path = "/health"
           port = 8080
         }
-        period_seconds = 30
-        timeout_seconds = 10
+        period_seconds    = 30
+        timeout_seconds   = 10
         failure_threshold = 3
       }
 
@@ -153,6 +153,7 @@ resource "google_service_account" "frontend" {
 
 # Grant frontend service account permission to invoke animator
 resource "google_cloud_run_service_iam_member" "frontend_invokes_animator" {
+  project  = var.project_id
   location = google_cloud_run_v2_service.animator.location
   service  = google_cloud_run_v2_service.animator.name
   role     = "roles/run.invoker"
