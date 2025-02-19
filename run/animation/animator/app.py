@@ -9,7 +9,7 @@ import uuid
 import logging
 import datetime
 from functools import lru_cache
-from prompts import BLENDER_PROMPT
+from prompts import BLENDER_PROMPT, BLENDER_OPERATORS
 
 app = Flask(__name__)
 
@@ -56,8 +56,8 @@ def get_llm():
             model_name="gemini-2.0-flash-001",  # Using Flash model
             temperature=1.0,
             top_p=0.95,
-            max_output_tokens=2048,  # Flash has lower token limit
-            request_timeout=60,  # Flash typically needs less time
+            max_output_tokens=4096,
+            request_timeout=60,
             max_retries=3
         )
         logger.info("Successfully initialized LLM")
@@ -79,12 +79,13 @@ class BlenderScriptGenerator:
     def generate(self, prompt: str) -> str:
         try:
             logger.info("Sending prompt to LLM")
-            # Use the LangChain prompt template with operators
-            formatted_prompt = BLENDER_PROMPT.format(
+            # Format the prompt with operators
+            formatted_prompt = BLENDER_PROMPT.format_prompt(
                 user_prompt=prompt,
-                operators="\n".join(BLENDER_OPERATORS)  # Include operators in prompt
+                operators="\n".join(BLENDER_OPERATORS)
             )
-            response = llm.invoke(formatted_prompt)
+            
+            response = llm.invoke(str(formatted_prompt))
             
             # Extract content from AIMessage
             if hasattr(response, 'content'):
@@ -92,11 +93,15 @@ class BlenderScriptGenerator:
             else:
                 raw_content = str(response)
             
-            # Extract script from between triple backticks
-            if '```python' in raw_content and '```' in raw_content:
-                script = raw_content.split('```python')[1].split('```')[0].strip()
-            else:
-                script = raw_content.strip()
+            # Clean up the response
+            script = raw_content.strip()
+            
+            # Remove any remaining markdown formatting
+            if script.startswith('```python'):
+                script = script[len('```python'):]
+            if script.endswith('```'):
+                script = script[:-3]
+            script = script.strip()
                 
             if not script:
                 logger.error("Generated script is empty")
@@ -168,8 +173,13 @@ class BlenderScriptGenerator:
             'export_format=\'GLB\'',
         ]
         
+        # Log the script content for debugging
+        logger.info("Validating script requirements. Script content:")
+        logger.info(script)
+        
         for component in required_components:
             if component not in script:
+                logger.error(f"Missing required component: {component}")
                 raise ValueError(f'Generated script missing required component: {component}')
 
 class BlenderRunner:
