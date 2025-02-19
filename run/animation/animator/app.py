@@ -53,7 +53,7 @@ def get_llm():
     """Creates the LLM instance using the environment variable GOOGLE_API_KEY"""
     try:
         llm = ChatVertexAI(
-            model_name="gemini-1.5-flash-002",  # Using Flash model
+            model_name="gemini-2.0-flash-001",  # Using Flash model
             temperature=1.0,
             top_p=0.95,
             max_output_tokens=2048,  # Flash has lower token limit
