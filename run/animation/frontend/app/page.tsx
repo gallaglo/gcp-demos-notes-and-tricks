@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
-import { Maximize2Icon, RotateCcw, PlayIcon, PauseIcon, Sparkles } from "lucide-react";
+import { Maximize2, RotateCcw, PlayIcon, PauseIcon, Sparkles, Loader2 } from "lucide-react";
 import { retryWithBackoff } from '@/lib/utils';
 import {
   DropdownMenu,
@@ -28,6 +28,7 @@ export default function Home() {
   const [prompt, setPrompt] = useState('');
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const [isAnimationPlaying, setIsAnimationPlaying] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -163,6 +164,7 @@ export default function Home() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setIsLoading(true);
     setStatus('Generating animation...');
     setError('');
   
@@ -253,6 +255,8 @@ export default function Home() {
       } else {
         setError('An unknown error occurred');
       }
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -303,8 +307,15 @@ export default function Home() {
                       className="min-h-[150px]"
                     />
                   </div>
-                  <Button type="submit" className="w-full">
-                    Generate Animation
+                  <Button type="submit" className="w-full" disabled={isLoading}>
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      'Generate Animation'
+                    )}
                   </Button>
                 </form>
               </CardContent>
@@ -339,7 +350,7 @@ export default function Home() {
                       onClick={fitModelToView}
                       className="flex-1"
                     >
-                      <Maximize2Icon className="mr-2 h-4 w-4" />
+                      <Maximize2 className="mr-2 h-4 w-4" />
                       Fit to View
                     </Button>
                   </div>
