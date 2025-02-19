@@ -89,7 +89,7 @@ resource "google_cloud_run_v2_service" "animator" {
 
       startup_probe {
         initial_delay_seconds = 15
-        timeout_seconds       = 15
+        timeout_seconds       = 5
         period_seconds        = 10
         failure_threshold     = 3
         http_get {
