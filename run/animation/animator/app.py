@@ -56,7 +56,7 @@ def get_llm():
             model_name="gemini-2.0-flash-001",  # Using Flash model
             temperature=1.0,
             top_p=0.95,
-            max_output_tokens=2048,  # Flash has lower token limit
+            max_output_tokens=4096,
             request_timeout=60,  # Flash typically needs less time
             max_retries=3
         )
