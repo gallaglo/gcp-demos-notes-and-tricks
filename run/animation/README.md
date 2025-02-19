@@ -57,7 +57,13 @@ export REGION="us-central1"  # or your preferred region
 export AR_REPO="animator-app"  # name for your Artifact Registry repository
 ```
 
-### 2. Enable Required APIs
+### 2. Authenticate with Google Cloud
+
+```bash
+gcloud auth application-default login
+```
+
+### 3. Enable Required APIs
 
 ```bash
 # Enable required Google Cloud APIs
@@ -73,7 +79,7 @@ gcloud services enable \
     iam.googleapis.com
 ```
 
-### 3. Create Artifact Registry Repository
+### 4. Create Artifact Registry Repository
 
 ```bash
 # Create a Docker repository in Artifact Registry
@@ -83,14 +89,14 @@ gcloud artifacts repositories create $AR_REPO \
     --description="Repository for Animation Generator"
 ```
 
-### 4. Configure Docker Authentication
+### 5. Configure Docker Authentication
 
 ```bash
 # Configure Docker to use gcloud as a credential helper
 gcloud auth configure-docker ${REGION}-docker.pkg.dev
 ```
 
-### 5. Build and Push Container Images
+### 6. Build and Push Container Images
 
 ```bash
 # Build frontend image
@@ -102,7 +108,7 @@ gcloud builds submit ./animator \
     --tag ${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/animator:latest
 ```
 
-### 6. Deploy to Cloud Run
+### 7. Deploy to Cloud Run
 
 Create a `terraform.tfvars` file in the terraform directory with your configuration:
 
