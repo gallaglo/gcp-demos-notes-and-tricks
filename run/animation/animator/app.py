@@ -240,37 +240,47 @@ class GCSUploader:
     def __init__(self, bucket):
         self.bucket = bucket
     
-    def upload_file(self, local_path: str) -> str:
+    def upload_file_with_script(self, animation_path: str, script_path: str) -> str:
         """
-        Uploads a file to GCS and returns a signed URL for downloading.
+        Uploads both animation and script files to GCS and returns animation signed URL.
         
         Args:
-            local_path (str): Path to the local file to upload
+            animation_path (str): Path to the local animation file
+            script_path (str): Path to the local script file
             
         Returns:
-            str: Signed URL for downloading the file
+            str: Signed URL for downloading the animation file
             
         Raises:
             Exception: If upload or URL generation fails
         """
         try:
-            # Generate a unique path for the animation
-            blob_name = f'animations/{uuid.uuid4()}.glb'
-            blob = self.bucket.blob(blob_name)
+            # Generate a unique folder name for this animation set
+            folder_id = str(uuid.uuid4())
+            base_path = f'animations/{folder_id}'
             
-            # Upload the file
-            with open(local_path, 'rb') as file_obj:
-                blob.upload_from_file(file_obj)
-            logger.info(f"Successfully uploaded file to {blob_name}")
+            # Upload animation
+            animation_blob_name = f'{base_path}/animation.glb'
+            animation_blob = self.bucket.blob(animation_blob_name)
+            with open(animation_path, 'rb') as file_obj:
+                animation_blob.upload_from_file(file_obj)
+            logger.info(f"Successfully uploaded animation to {animation_blob_name}")
             
-            # Generate signed URL
-            url = blob.generate_signed_url(
+            # Upload script (for debugging purposes)
+            script_blob_name = f'{base_path}/script.py'
+            script_blob = self.bucket.blob(script_blob_name)
+            with open(script_path, 'rb') as file_obj:
+                script_blob.upload_from_file(file_obj)
+            logger.info(f"Successfully uploaded script to {script_blob_name}")
+            
+            # Generate signed URL only for animation
+            url = animation_blob.generate_signed_url(
                 version="v4",
                 expiration=datetime.timedelta(minutes=15),
                 method="GET",
             )
             
-            logger.info(f"Generated signed URL for {blob_name}")
+            logger.info(f"Generated signed URL for animation in {base_path}")
             return url
             
         except Exception as e:
@@ -324,7 +334,7 @@ def generate():
             
             if result['success']:
                 try:
-                    signed_url = gcs_uploader.upload_file(output_path)
+                    signed_url = gcs_uploader.upload_file_with_script(output_path, script_path)
                     return jsonify({
                         'signed_url': signed_url,
                         'expiration': '15 minutes'
