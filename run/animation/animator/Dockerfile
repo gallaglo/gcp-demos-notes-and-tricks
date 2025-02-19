@@ -1,10 +1,26 @@
-# Use Debian Bookworm slim image which has newer versions of zlib and expat
-FROM python:3.9-slim-bookworm
+# Build stage
+FROM python:3.9-slim-bookworm as builder
 
-# Install dependencies first
+# Install build dependencies first
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download and extract Blender
+RUN wget https://download.blender.org/release/Blender4.3/blender-4.3.0-linux-x64.tar.xz \
+    && tar -xf blender-4.3.0-linux-x64.tar.xz \
+    && rm blender-4.3.0-linux-x64.tar.xz
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --user --no-cache-dir -r requirements.txt
+
+# Runtime stage
+FROM python:3.9-slim-bookworm
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrender1 \
     libgl1-mesa-glx \
     libxkbcommon0 \
@@ -23,14 +39,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libexpat1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Download and install specific Blender version
-RUN wget https://download.blender.org/release/Blender4.3/blender-4.3.0-linux-x64.tar.xz \
-    && tar -xf blender-4.3.0-linux-x64.tar.xz \
-    && mv blender-4.3.0-linux-x64 /usr/local/blender \
-    && rm blender-4.3.0-linux-x64.tar.xz
+# Copy Blender from builder stage
+COPY --from=builder /blender-4.3.0-linux-x64 /usr/local/blender
 
-# Add Blender to PATH
-ENV PATH="/usr/local/blender:${PATH}"
+# Clean up unnecessary Blender files
+RUN rm -rf /usr/local/blender/4.3/scripts/addons/* && \
+    rm -rf /usr/local/blender/4.3/scripts/addons_contrib/* && \
+    rm -rf /usr/local/blender/4.3/datafiles/locale/* && \
+    # Remove unnecessary data files
+    rm -rf /usr/local/blender/4.3/datafiles/colormanagement/* && \
+    rm -rf /usr/local/blender/4.3/datafiles/preview/* && \
+    rm -rf /usr/local/blender/4.3/datafiles/fonts/* && \
+    # Remove documentation if present
+    rm -rf /usr/local/blender/4.3/datafiles/doc/* && \
+    # Remove any backup files
+    find /usr/local/blender -name "*.pyc" -delete && \
+    find /usr/local/blender -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 
 # Create non-root user and setup directories
 RUN useradd -m -s /bin/bash blenderuser && \
@@ -39,8 +63,12 @@ RUN useradd -m -s /bin/bash blenderuser && \
     chown -R blenderuser:blenderuser /tmp && \
     chown -R blenderuser:blenderuser /usr/local/blender
 
-# Set Blender environment variables
-ENV BLENDER_USER_CONFIG=/tmp/blender-config \
+# Copy Python packages from builder
+COPY --from=builder /root/.local /home/blenderuser/.local
+
+# Set environment variables
+ENV PATH="/usr/local/blender:/home/blenderuser/.local/bin:${PATH}" \
+    BLENDER_USER_CONFIG=/tmp/blender-config \
     BLENDER_USER_SCRIPTS=/usr/local/blender/4.3/scripts \
     BLENDER_SYSTEM_SCRIPTS=/usr/local/blender/4.3/scripts \
     XDG_CONFIG_HOME=/tmp/blender-config
@@ -48,13 +76,6 @@ ENV BLENDER_USER_CONFIG=/tmp/blender-config \
 # Switch to non-root user
 USER blenderuser
 WORKDIR /app
-
-# Copy and install requirements
-COPY requirements.txt .
-RUN pip install --user --no-cache-dir -r requirements.txt
-
-# Add local bin to PATH
-ENV PATH="/home/blenderuser/.local/bin:${PATH}"
 
 # Copy application files
 COPY . .
