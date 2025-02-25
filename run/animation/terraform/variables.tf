@@ -12,11 +12,13 @@ variable "region" {
 variable "animator_container_image" {
   description = "The container image URL for the animator service"
   type        = string
+  default     = ""
 }
 
 variable "frontend_container_image" {
   description = "The container image URL for the frontend service"
   type        = string
+  default     = ""
 }
 
 variable "local_testing_mode" {
