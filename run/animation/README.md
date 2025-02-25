@@ -153,6 +153,10 @@ gcloud artifacts repositories delete $AR_REPO \
 
 ## Local Development
 
+Build and run the services locally using Docker Compose or Podman Compose for development and testing.
+
+> **Note**: The local development steps create an IAM service account key for local testing and save it to a JSON file. This key is used by the services to authenticate with Google Cloud services and is required for generating signed URLs for Cloud Storage.
+
 ### Setting Up Local Environment
 
 1. Set Environment Variables
@@ -202,3 +206,10 @@ gcloud artifacts repositories delete $AR_REPO \
    ```
 
 6. Access the application at <http://localhost:3000>
+
+7. Clean up - Delete GCP resources and service account key file
+
+```bash
+cd terraform
+terraform destroy
+```
