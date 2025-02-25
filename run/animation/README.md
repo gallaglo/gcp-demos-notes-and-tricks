@@ -138,7 +138,7 @@ terraform init
 terraform apply
 ```
 
-#### 8. Clean Up
+### Cleanup
 
 To avoid incurring charges, clean up the resources when no longer needed:
 
@@ -155,9 +155,9 @@ gcloud artifacts repositories delete $AR_REPO \
 
 Build and run the services locally using Docker Compose or Podman Compose for development and testing.
 
-> **Note**: The local development steps create an IAM service account key for local testing and save it to a JSON file. This key is used by the services to authenticate with Google Cloud services and is required for generating signed URLs for Cloud Storage.
+> **Note**: Steps create and save an [IAM service account key](https://cloud.google.com/iam/docs/service-account-creds#user-managed-keys) to a local JSON file.
 
-### Setting Up Local Environment
+### Setup
 
 1. Set Environment Variables
 
@@ -207,7 +207,10 @@ Build and run the services locally using Docker Compose or Podman Compose for de
 
 6. Access the application at <http://localhost:3000>
 
-7. Clean up - Delete GCP resources and service account key file
+### Local Cleanup
+
+1. Press `Ctrl+C` to stop the containers
+2. Delete GCP resources and service account key file provisioned in Terraform
 
 ```bash
 cd terraform
