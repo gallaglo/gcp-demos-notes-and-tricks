@@ -47,59 +47,6 @@ The services communicate securely through Cloud Run's built-in service-to-servic
 - [Docker Compose](https://docs.docker.com/compose/) or [Podman Compose](https://podman-desktop.io/docs/compose/setting-up-compose) for local development
 - Active Google Cloud Project
 
-## Local Development
-
-### Setting Up Local Environment
-
-1. Set Environment Variables
-
-   ```bash
-   # Set your project ID
-   export PROJECT_ID="<your-project-id>"
-   export REGION="us-central1"  # or your preferred region
-   ```
-
-2. Authenticate with Google Cloud
-
-   ```bash
-   gcloud auth application-default login
-   ```
-
-3. Deploy infrastructure using Terraform
-
-   ```bash
-   cd terraform
-   # Create terraform.tfvars file
-   cat << EOF > terraform.tfvars
-   project_id = "${PROJECT_ID}"
-   region = "${REGION}"
-   local_testing_mode = true
-   EOF
-   
-   terraform init
-   terraform apply  # enter yes to proceed
-   cd ..
-   ```
-
-4. Set up the local environment
-
-   ```bash
-   ./setup-local-env.sh
-   ```
-
-5. Start the services locally
-
-   ```bash
-   # Using Docker Compose
-   docker-compose up
-   
-   # Or using Podman Compose
-   podman-compose up
-   ```
-
-6. Access the application
-   The web interface will be available at <http://localhost:3000>
-
 ## Cloud Deployment
 
 ### Setup Instructions
@@ -183,7 +130,7 @@ terraform init
 terraform apply
 ```
 
-## Clean Up
+#### 8. Clean Up
 
 To avoid incurring charges, clean up the resources when no longer needed:
 
@@ -195,3 +142,55 @@ terraform destroy
 gcloud artifacts repositories delete $AR_REPO \
     --location=$REGION
 ```
+
+## Local Development
+
+### Setting Up Local Environment
+
+1. Set Environment Variables
+
+   ```bash
+   # Set your project ID
+   export PROJECT_ID="<your-project-id>"
+   export REGION="us-central1"  # or your preferred region
+   ```
+
+2. Authenticate with Google Cloud
+
+   ```bash
+   gcloud auth application-default login
+   ```
+
+3. Deploy infrastructure using Terraform
+
+   ```bash
+   cd terraform
+   # Create terraform.tfvars file
+   cat << EOF > terraform.tfvars
+   project_id = "${PROJECT_ID}"
+   region = "${REGION}"
+   local_testing_mode = true
+   EOF
+   
+   terraform init
+   terraform apply  # enter yes to proceed
+   cd ..
+   ```
+
+4. Set up the local environment
+
+   ```bash
+   ./setup-local-env.sh
+   ```
+
+5. Start the services locally
+
+   ```bash
+   # Using Docker Compose
+   docker-compose up
+   
+   # Or using Podman Compose
+   podman-compose up
+   ```
+
+6. Access the application at <http://localhost:3000>
