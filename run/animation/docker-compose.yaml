@@ -1,0 +1,45 @@
+networks:
+  default:
+    name: app-network
+services:
+  # Backend API service (animator)
+  animator:
+    build:
+      context: ./animator
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}
+      - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
+      - VERTEX_AI_LOCATION=${VERTEX_AI_LOCATION:-us-central1}
+      # Use the specific service account key path
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/animator-sa-key.json
+    volumes:
+      # Mount the specific service account key
+      - ./animator-sa-key.json:/app/animator-sa-key.json:ro
+    networks:
+      - default
+
+  # Frontend web app
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:8080" # Map container port 8080 to host port 3000
+    environment:
+      - PORT=8080
+      - BACKEND_SERVICE_URL=http://animator:8080
+      - NEXT_PUBLIC_BACKEND_SERVICE_URL=http://localhost:8080 # For client-side code
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}
+      # Use the same service account key path for frontend
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/animator-sa-key.json
+    volumes:
+      # Mount the specific service account key
+      - ./animator-sa-key.json:/app/animator-sa-key.json:ro
+    depends_on:
+      - animator
+    networks:
+      - default
