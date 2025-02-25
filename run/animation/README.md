@@ -16,25 +16,32 @@ The application processes animation requests through the following workflow:
 ```mermaid
 flowchart LR
     User((User))
-    WebUI[Web Interface]
-    ThreeJS[Three.js Viewer]
-    APIHandler[API Handler]
-    ScriptGen[Script Generator]
-    BlenderExec[Blender Executor]
-    VertexAI[Vertex AI LLM]
     GCS[(Cloud Storage)]
-
-    User -->|Enter prompt| WebUI
-    WebUI -->|Send prompt| APIHandler
-    APIHandler -->|Request script| VertexAI
-    VertexAI -->|Return script| ScriptGen
-    ScriptGen -->|Validate script| BlenderExec
-    BlenderExec -->|Generate animation| BlenderExec
-    BlenderExec -->|Upload file| GCS
-    GCS -->|Return signed URL| APIHandler
-    APIHandler -->|Return URL| WebUI
-    WebUI -->|Load animation| ThreeJS
-    ThreeJS -->|Display| User
+    VertexAI[Vertex AI LLM]
+    
+    subgraph "Frontend Web App"
+        WebUI[Prompt Input]
+        ThreeJS[Three.js Viewer]
+    end
+    
+    subgraph "Animator App"
+        FlaskAPI[Flask API]
+        BlenderScriptGen[BlenderScriptGenerator]
+        BlenderRunner[BlenderRunner]
+        GCSUploader[GCSUploader]
+    end
+    
+    User -->|1. Submit animation prompt| WebUI
+    WebUI -->|2. Send prompt to /generate endpoint| FlaskAPI
+    FlaskAPI -->|3. Pass user prompt| BlenderScriptGen
+    BlenderScriptGen -->|4. Request script| VertexAI
+    VertexAI -->|5. Return script| BlenderScriptGen
+    BlenderScriptGen -->|6. Validate script| BlenderRunner
+    BlenderRunner -->|7. Generate GLB animation| GCSUploader
+    GCSUploader -->|8. Upload files| GCS
+    GCS -->|9. Return signed URL| FlaskAPI
+    FlaskAPI -->|10. Return Signed URL response| ThreeJS
+    ThreeJS -->|12. Display animation| User
 ```
 
 The services communicate securely through Cloud Run's built-in service-to-service authentication.
