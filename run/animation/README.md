@@ -1,5 +1,9 @@
 # Animation Generator
 
+Containerized web application that generates animations based on user prompts using [Gemini 2.0](https://cloud.google.com/vertex-ai/generative-ai/docs/gemini-v2) (LLM) and [Blender](https://www.blender.org/).
+
+![Animation Generator](animation-app2.gif)
+
 > **Note**: This demo is based on the [Securing Cloud Run services tutorial](https://cloud.google.com/run/docs/tutorials/secure-services) from the Google Cloud documentation.
 
 ## Architecture
