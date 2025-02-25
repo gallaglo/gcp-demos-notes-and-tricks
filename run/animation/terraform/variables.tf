@@ -18,3 +18,9 @@ variable "frontend_container_image" {
   description = "The container image URL for the frontend service"
   type        = string
 }
+
+variable "local_testing_mode" {
+  description = "If true, skips creation of Cloud Run services for local development"
+  type        = bool
+  default     = false
+}

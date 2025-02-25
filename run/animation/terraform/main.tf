@@ -1,13 +1,27 @@
-# Enable required APIs
-resource "google_project_service" "required_apis" {
-  for_each = toset([
+locals {
+  required_apis = [
     "aiplatform.googleapis.com",
     "generativelanguage.googleapis.com",
     "run.googleapis.com",
     "secretmanager.googleapis.com",
     "iam.googleapis.com",
     "storage.googleapis.com"
-  ])
+  ]
+
+  service_name_prefix = "${var.project_id}-animator"
+
+  animator_iam_roles = [
+    "roles/storage.admin",
+    "roles/aiplatform.user"
+  ]
+
+  # Simplify conditional logic
+  create_cloud_resources = !var.local_testing_mode
+}
+
+# Enable required APIs
+resource "google_project_service" "required_apis" {
+  for_each = toset(local.required_apis)
 
   project = var.project_id
   service = each.value
@@ -21,7 +35,7 @@ resource "random_id" "bucket_suffix" {
 }
 
 resource "google_storage_bucket" "animator_assets" {
-  name          = "${var.project_id}-animator-assets-${random_id.bucket_suffix.hex}"
+  name          = "${local.service_name_prefix}-assets-${random_id.bucket_suffix.hex}"
   project       = var.project_id
   location      = var.region
   force_destroy = true
@@ -31,42 +45,73 @@ resource "google_storage_bucket" "animator_assets" {
   versioning {
     enabled = true
   }
+
+  depends_on = [google_project_service.required_apis["storage.googleapis.com"]]
 }
 
-# Service account for animator service
+# Service accounts
 resource "google_service_account" "animator" {
-  depends_on   = [google_project_service.required_apis]
   account_id   = "animator-identity"
   display_name = "Service identity of the Animator service"
   project      = var.project_id
+
+  depends_on = [google_project_service.required_apis["iam.googleapis.com"]]
 }
 
-# Grant animator service account required permissions
-resource "google_secret_manager_secret_iam_member" "animator_secret_accessor" {
+resource "google_service_account" "frontend" {
+  count        = local.create_cloud_resources ? 1 : 0
+  account_id   = "frontend-identity"
+  display_name = "Service identity of the Frontend service"
+  project      = var.project_id
+
+  depends_on = [google_project_service.required_apis["iam.googleapis.com"]]
+}
+
+# Service account key 
+resource "google_service_account_key" "animator_sa_key" {
+  service_account_id = google_service_account.animator.name
+}
+
+# Secret management for service account key
+resource "google_secret_manager_secret" "animator_sa_key" {
+  count     = local.create_cloud_resources ? 1 : 0
+  secret_id = "animator-sa-key"
   project   = var.project_id
-  secret_id = google_secret_manager_secret.animator_sa_key.secret_id
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.required_apis["secretmanager.googleapis.com"]]
+}
+
+resource "google_secret_manager_secret_version" "animator_sa_key_version" {
+  count       = local.create_cloud_resources ? 1 : 0
+  secret      = google_secret_manager_secret.animator_sa_key[0].id
+  secret_data = base64decode(google_service_account_key.animator_sa_key.private_key)
+}
+
+# IAM permissions
+resource "google_secret_manager_secret_iam_member" "animator_secret_accessor" {
+  count     = local.create_cloud_resources ? 1 : 0
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.animator_sa_key[0].secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.animator.email}"
 }
 
-resource "google_project_iam_member" "animator_storage_admin" {
+# Simplified IAM role assignments using for_each
+resource "google_project_iam_member" "animator_roles" {
+  for_each = toset(local.animator_iam_roles)
+
   project = var.project_id
-  role    = "roles/storage.admin"
+  role    = each.value
   member  = "serviceAccount:${google_service_account.animator.email}"
 }
 
-resource "google_project_iam_member" "vertexai_user" {
-  project = var.project_id
-  role    = "roles/aiplatform.user"
-  member  = "serviceAccount:${google_service_account.animator.email}"
-}
-
-# Animator service
+# Cloud Run Services
 resource "google_cloud_run_v2_service" "animator" {
-  depends_on = [
-    google_secret_manager_secret.animator_sa_key,
-    google_secret_manager_secret_version.animator_sa_key_version
-  ]
+  count               = local.create_cloud_resources ? 1 : 0
   name                = "animator"
   location            = var.region
   project             = var.project_id
@@ -132,7 +177,7 @@ resource "google_cloud_run_v2_service" "animator" {
     volumes {
       name = "service-account"
       secret {
-        secret = google_secret_manager_secret.animator_sa_key.secret_id
+        secret = google_secret_manager_secret.animator_sa_key[0].secret_id
         items {
           version = "latest"
           path    = "key.json"
@@ -142,26 +187,15 @@ resource "google_cloud_run_v2_service" "animator" {
 
     service_account = google_service_account.animator.email
   }
+
+  depends_on = [
+    google_secret_manager_secret_version.animator_sa_key_version,
+    google_project_service.required_apis["run.googleapis.com"]
+  ]
 }
 
-# Frontend service account
-resource "google_service_account" "frontend" {
-  account_id   = "frontend-identity"
-  display_name = "Service identity of the Frontend service"
-  project      = var.project_id
-}
-
-# Grant frontend service account permission to invoke animator
-resource "google_cloud_run_service_iam_member" "frontend_invokes_animator" {
-  project  = var.project_id
-  location = google_cloud_run_v2_service.animator.location
-  service  = google_cloud_run_v2_service.animator.name
-  role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.frontend.email}"
-}
-
-# Frontend service
 resource "google_cloud_run_v2_service" "frontend" {
+  count               = local.create_cloud_resources ? 1 : 0
   name                = "frontend"
   location            = var.region
   project             = var.project_id
@@ -173,15 +207,27 @@ resource "google_cloud_run_v2_service" "frontend" {
 
       env {
         name  = "BACKEND_SERVICE_URL"
-        value = google_cloud_run_v2_service.animator.uri
+        value = google_cloud_run_v2_service.animator[0].uri
       }
     }
 
-    service_account = google_service_account.frontend.email
+    service_account = google_service_account.frontend[0].email
   }
+
+  depends_on = [google_project_service.required_apis["run.googleapis.com"]]
 }
 
-# Allow public access to frontend
+# IAM policy for animator service access
+resource "google_cloud_run_service_iam_member" "frontend_invokes_animator" {
+  count    = local.create_cloud_resources ? 1 : 0
+  project  = var.project_id
+  location = google_cloud_run_v2_service.animator[0].location
+  service  = google_cloud_run_v2_service.animator[0].name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.frontend[0].email}"
+}
+
+# Public access policy
 data "google_iam_policy" "noauth" {
   binding {
     role = "roles/run.invoker"
@@ -192,27 +238,17 @@ data "google_iam_policy" "noauth" {
 }
 
 resource "google_cloud_run_service_iam_policy" "public_frontend" {
-  location    = google_cloud_run_v2_service.frontend.location
-  project     = google_cloud_run_v2_service.frontend.project
-  service     = google_cloud_run_v2_service.frontend.name
+  count       = local.create_cloud_resources ? 1 : 0
+  location    = google_cloud_run_v2_service.frontend[0].location
+  project     = google_cloud_run_v2_service.frontend[0].project
+  service     = google_cloud_run_v2_service.frontend[0].name
   policy_data = data.google_iam_policy.noauth.policy_data
 }
 
-# Secrets
-resource "google_secret_manager_secret" "animator_sa_key" {
-  secret_id = "animator-sa-key"
-  project   = var.project_id
-
-  replication {
-    auto {}
-  }
-}
-
-resource "google_service_account_key" "animator_sa_key" {
-  service_account_id = google_service_account.animator.name
-}
-
-resource "google_secret_manager_secret_version" "animator_sa_key_version" {
-  secret      = google_secret_manager_secret.animator_sa_key.id
-  secret_data = base64decode(google_service_account_key.animator_sa_key.private_key)
+# Local testing specific resources
+resource "local_file" "animator_sa_key" {
+  count           = var.local_testing_mode ? 1 : 0
+  filename        = "../animator-sa-key.json"
+  content         = base64decode(google_service_account_key.animator_sa_key.private_key)
+  file_permission = "0600"
 }

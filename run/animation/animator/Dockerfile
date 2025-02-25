@@ -1,5 +1,5 @@
 # Build stage
-FROM --platform=linux/amd64 python:3.9-slim-bookworm as builder
+FROM python:3.9-slim-bookworm as builder
 
 # Install build dependencies first
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -13,7 +13,7 @@ RUN wget https://download.blender.org/release/Blender4.3/blender-4.3.0-linux-x64
     && rm blender-4.3.0-linux-x64.tar.xz
 
 # Runtime stage
-FROM --platform=linux/amd64 python:3.9-slim-bookworm
+FROM python:3.9-slim-bookworm
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
