@@ -31,17 +31,17 @@ flowchart LR
         GCSUploader[GCSUploader]
     end
     
-    User -->|"1. Submit animation prompt"| WebUI
-    WebUI -->|"2. Send prompt to /generate endpoint"| FlaskAPI
-    FlaskAPI -->|"3. Pass user prompt"| BlenderScriptGen
-    BlenderScriptGen -->|"4. Request script"| VertexAI
-    VertexAI -->|"5. Return script"| BlenderScriptGen
-    BlenderScriptGen -->|"6. Validate script"| BlenderRunner
-    BlenderRunner -->|"7. Generate GLB animation"| GCSUploader
-    GCSUploader -->|"8. Upload files"| GCS
-    GCS -->|"9. Return signed URL"| FlaskAPI
-    FlaskAPI -->|"10. Return Signed URL response"| ThreeJS
-    ThreeJS -->|12. Display animation| User
+    User -->|"Submit animation prompt"| WebUI
+    WebUI -->|"Send prompt to /generate endpoint"| FlaskAPI
+    FlaskAPI -->|"Pass user prompt"| BlenderScriptGen
+    BlenderScriptGen -->|"Request script"| VertexAI
+    VertexAI -->|"Return script"| BlenderScriptGen
+    BlenderScriptGen -->|"Validate script"| BlenderRunner
+    BlenderRunner -->|"Generate GLB animation"| GCSUploader
+    GCSUploader -->|"Upload files"| GCS
+    GCS -->|"Return signed URL"| FlaskAPI
+    FlaskAPI -->|"Return Signed URL response"| ThreeJS
+    ThreeJS -->|"Display animation"| User
 ```
 
 The services communicate securely through Cloud Run's built-in service-to-service authentication.
