@@ -50,7 +50,7 @@ The services communicate securely through Cloud Run's built-in service-to-servic
 ## Prerequisites
 
 - [Google Cloud SDK](https://cloud.google.com/sdk/docs/install)
-- [Docker](https://docs.docker.com/get-docker/) or [Podman](https://podman-desktop.io/docs/compose/setting-up-compose)
+- [Docker](https://docs.docker.com/get-docker/) or [Podman](https://podman-desktop.io/downloads/)
 - [Terraform](https://developer.hashicorp.com/terraform/install)
 - [Docker Compose](https://docs.docker.com/compose/) or [Podman Compose](https://podman-desktop.io/docs/compose/setting-up-compose) for local development
 - Active Google Cloud Project
