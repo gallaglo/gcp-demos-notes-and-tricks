@@ -206,25 +206,27 @@ resource "google_cloud_run_v2_service" "frontend" {
       image = var.frontend_container_image
 
       env {
-        name  = "BACKEND_SERVICE_URL"
-        value = google_cloud_run_v2_service.animator[0].uri
+        name  = "VERTEX_ENDPOINT"
+        value = google_vertex_ai_reasoning_engine_endpoint.animation_endpoint.uri
       }
     }
 
     service_account = google_service_account.frontend[0].email
   }
 
-  depends_on = [google_project_service.required_apis["run.googleapis.com"]]
+  depends_on = [
+    google_project_service.required_apis["run.googleapis.com"],
+    google_vertex_ai_reasoning_engine_endpoint.animation_endpoint
+  ]
 }
 
-# IAM policy for animator service access
-resource "google_cloud_run_service_iam_member" "frontend_invokes_animator" {
-  count    = local.create_cloud_resources ? 1 : 0
+# Update IAM for Cloud Run animator service to allow Reasoning Engine to invoke it
+resource "google_cloud_run_service_iam_member" "reasoning_engine_invokes_animator" {
   project  = var.project_id
   location = google_cloud_run_v2_service.animator[0].location
   service  = google_cloud_run_v2_service.animator[0].name
   role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.frontend[0].email}"
+  member   = "serviceAccount:${google_service_account.reasoning_engine.email}"
 }
 
 # Public access policy
