@@ -1,0 +1,113 @@
+steps:
+  # Create GCS bucket for Terraform state if it doesn't exist
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'create-tf-state-bucket'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        export TF_STATE_BUCKET=$PROJECT_ID-terraform-state
+        if ! gsutil ls -b gs://$TF_STATE_BUCKET &>/dev/null; then 
+          echo "Creating Terraform state bucket: $TF_STATE_BUCKET"
+          gsutil mb -l ${_REGION} gs://$TF_STATE_BUCKET
+          gsutil versioning set on gs://$TF_STATE_BUCKET
+          cat > /tmp/lifecycle.json << EOF
+        {
+          "rule": [
+            {
+              "action": {"type": "Delete"},
+              "condition": {
+                "numNewerVersions": 3,
+                "isLive": false
+              }
+            }
+          ]
+        }
+        EOF
+          gsutil lifecycle set /tmp/lifecycle.json gs://$TF_STATE_BUCKET
+        else 
+          echo "Terraform state bucket already exists: $TF_STATE_BUCKET"
+        fi
+        cat > /workspace/backend.tf << EOF
+        terraform {
+          backend "gcs" {
+            bucket = "$PROJECT_ID-terraform-state"
+            prefix = "terraform/state"
+          }
+        }
+        EOF
+
+  # Copy backend.tf to terraform directory
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'setup-tf-backend'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - 'cp /workspace/backend.tf terraform/; echo "Remote state backend configured."'
+
+  # Install dependencies for Python deployment script
+  - name: 'python:3.9'
+    id: 'install-dependencies'
+    entrypoint: 'pip'
+    args: ['install', 'google-cloud-storage', 'google-cloud-aiplatform', '-q']
+
+  # Apply Terraform for infrastructure
+  - name: 'hashicorp/terraform:1.5.7'
+    id: 'tf-init'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - 'cd terraform && terraform init'
+
+  - name: 'hashicorp/terraform:1.5.7'
+    id: 'tf-apply'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - 'cd terraform && terraform apply -auto-approve -var="project_id=$PROJECT_ID" -var="region=${_REGION}" -var="animator_container_image=gcr.io/$PROJECT_ID/animator:$COMMIT_SHA" -var="frontend_container_image=gcr.io/$PROJECT_ID/frontend:$COMMIT_SHA"'
+
+  # Extract outputs from Terraform
+  - name: 'hashicorp/terraform:1.5.7'
+    id: 'tf-output'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - 'cd terraform && terraform output -raw animator_url > /workspace/animator_url.txt && terraform output -raw bucket_name > /workspace/bucket_name.txt'
+
+  # Deploy to Vertex AI Reasoning Engine
+  - name: 'python:3.9'
+    id: 'deploy-reasoning-engine'
+    entrypoint: 'python'
+    args:
+      - 'deploy_reasoning_engine.py'
+      - '--project-id=$PROJECT_ID'
+      - '--region=${_REGION}'
+      - '--bucket-name=$(cat /workspace/bucket_name.txt)'
+      - '--animator-url=$(cat /workspace/animator_url.txt)'
+      - '--service-account=reasoning-engine-identity@$PROJECT_ID.iam.gserviceaccount.com'
+      - '--output-file=/workspace/endpoint_uri.txt'
+
+  # Update Frontend with Vertex AI Endpoint
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'update-frontend'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - 'ENDPOINT_URI=$(cat /workspace/endpoint_uri.txt); gcloud run services update frontend --region=${_REGION} --set-env-vars="VERTEX_ENDPOINT=$ENDPOINT_URI"'
+
+  # Output results
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'output-results'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - 'echo "Deployment complete!"; echo "Animator URL: $(cat /workspace/animator_url.txt)"; echo "Vertex AI Endpoint: $(cat /workspace/endpoint_uri.txt)"; echo "Terraform State Bucket: $PROJECT_ID-terraform-state"'
+
+timeout: 3600s
+
+# Substitutions
+substitutions:
+  _REGION: "us-central1"  # Default region, can be overridden
+
+options:
+  logging: CLOUD_LOGGING_ONLY
