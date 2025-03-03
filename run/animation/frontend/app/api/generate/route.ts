@@ -2,38 +2,58 @@ import { NextResponse } from 'next/server';
 import { GoogleAuth } from 'google-auth-library';
 import { fetchWithRetry } from '@/lib/utils';
 
-const BACKEND_SERVICE_URL = process.env.BACKEND_SERVICE_URL || 'https://animator-342279517497.us-central1.run.app';
-
-interface GenerateResponse {
-  signed_url: string;
+// Vertex AI Reasoning Engine endpoint - add type assertion to handle TypeScript error
+const VERTEX_ENDPOINT = process.env.VERTEX_ENDPOINT as string;
+if (!VERTEX_ENDPOINT) {
+  throw new Error("VERTEX_ENDPOINT environment variable is not set");
 }
 
-async function getIdToken() {
+interface VertexRequest {
+  prompt: string;
+}
+
+interface VertexResponse {
+  predictions: Array<{
+    generation_status: string;
+    signed_url?: string;
+    error?: string;
+  }>;
+}
+
+async function getIdToken(audience: string) {
   const auth = new GoogleAuth();
-  const client = await auth.getIdTokenClient(BACKEND_SERVICE_URL);
+  const client = await auth.getIdTokenClient(audience);
   const headers = await client.getRequestHeaders();
   return headers.Authorization.split(' ')[1];
 }
 
 export async function POST(request: Request) {
   try {
-    const { prompt } = await request.json();
+    const { prompt } = await request.json() as VertexRequest;
+    
     if (!prompt) {
       return NextResponse.json({ error: 'No prompt provided' }, { status: 400 });
     }
 
-    const idToken = await getIdToken();
+    // Get ID token for Vertex AI
+    const idToken = await getIdToken(VERTEX_ENDPOINT);
     
-    // First request to get signed URL with retry
-    const response = await fetchWithRetry(
-      `${BACKEND_SERVICE_URL}/generate`,
+    // Request to Vertex AI Reasoning Engine
+    const vertexResponse = await fetchWithRetry(
+      VERTEX_ENDPOINT,
       {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${idToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({
+          instances: [
+            {
+              prompt: prompt
+            }
+          ]
+        }),
       },
       {
         maxAttempts: 5,
@@ -42,20 +62,28 @@ export async function POST(request: Request) {
       }
     );
 
-    const data = await response.json() as GenerateResponse;
-    const signedUrl = data.signed_url;
+    const data = await vertexResponse.json() as VertexResponse;
     
-    if (!signedUrl) {
+    // Extract the result from the Vertex AI response
+    const result = data.predictions[0];
+    
+    if (result.error) {
+      return NextResponse.json({ error: result.error }, { status: 500 });
+    }
+    
+    if (result.generation_status !== 'completed') {
+      return NextResponse.json({ error: 'Animation generation failed' }, { status: 500 });
+    }
+    
+    if (!result.signed_url) {
       return NextResponse.json({ error: 'No signed URL in response' }, { status: 400 });
     }
 
-    // Second request to fetch GLB file with retry
+    // Fetch the GLB file directly
     const glbResponse = await fetchWithRetry(
-      signedUrl,
+      result.signed_url,
       {
-        headers: {
-          'Authorization': `Bearer ${idToken}`,
-        },
+        method: 'GET'
       },
       {
         maxAttempts: 3,
@@ -64,14 +92,14 @@ export async function POST(request: Request) {
       }
     );
 
-    // Stream the GLB file
+    // Stream the GLB file to the client
     const headers = new Headers();
     headers.set('Content-Type', 'model/gltf-binary');
-    headers.set('Content-Disposition', `inline; filename=${new URL(signedUrl).pathname.split('/').pop()?.split('?')[0]}`);
+    headers.set('Content-Disposition', `inline; filename=${new URL(result.signed_url).pathname.split('/').pop()?.split('?')[0] || 'animation.glb'}`);
     headers.set('Cache-Control', 'no-cache');
     
     return new NextResponse(glbResponse.body, {
-      headers,
+      headers
     });
   } catch (error) {
     console.error('Error:', error);
