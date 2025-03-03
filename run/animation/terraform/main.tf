@@ -194,6 +194,42 @@ resource "google_cloud_run_v2_service" "animator" {
   ]
 }
 
+# Service account for the Reasoning Engine
+resource "google_service_account" "reasoning_engine" {
+  account_id   = "reasoning-engine-identity"
+  display_name = "Service identity of the Reasoning Engine"
+  project      = var.project_id
+
+  depends_on = [google_project_service.required_apis["iam.googleapis.com"]]
+}
+
+# IAM roles for Reasoning Engine service account
+locals {
+  reasoning_engine_iam_roles = [
+    "roles/storage.admin",
+    "roles/aiplatform.user",
+    "roles/run.invoker" # To invoke the Blender service
+  ]
+}
+
+resource "google_project_iam_member" "reasoning_engine_roles" {
+  for_each = toset(local.reasoning_engine_iam_roles)
+
+  project = var.project_id
+  role    = each.value
+  member  = "serviceAccount:${google_service_account.reasoning_engine.email}"
+}
+
+# IAM for Cloud Run animator service to allow Reasoning Engine to invoke it
+resource "google_cloud_run_service_iam_member" "reasoning_engine_invokes_animator" {
+  project  = var.project_id
+  location = google_cloud_run_v2_service.animator[0].location
+  service  = google_cloud_run_v2_service.animator[0].name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.reasoning_engine.email}"
+}
+
+# Frontend service - endpoint will be updated by the Cloud Build step
 resource "google_cloud_run_v2_service" "frontend" {
   count               = local.create_cloud_resources ? 1 : 0
   name                = "frontend"
@@ -205,28 +241,16 @@ resource "google_cloud_run_v2_service" "frontend" {
     containers {
       image = var.frontend_container_image
 
-      env {
-        name  = "VERTEX_ENDPOINT"
-        value = google_vertex_ai_reasoning_engine_endpoint.animation_endpoint.uri
-      }
+      # Cloud Build will update this environment variable
+      # with the correct Vertex endpoint
     }
 
     service_account = google_service_account.frontend[0].email
   }
 
   depends_on = [
-    google_project_service.required_apis["run.googleapis.com"],
-    google_vertex_ai_reasoning_engine_endpoint.animation_endpoint
+    google_project_service.required_apis["run.googleapis.com"]
   ]
-}
-
-# Update IAM for Cloud Run animator service to allow Reasoning Engine to invoke it
-resource "google_cloud_run_service_iam_member" "reasoning_engine_invokes_animator" {
-  project  = var.project_id
-  location = google_cloud_run_v2_service.animator[0].location
-  service  = google_cloud_run_v2_service.animator[0].name
-  role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.reasoning_engine.email}"
 }
 
 # Public access policy

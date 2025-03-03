@@ -27,9 +27,3 @@ output "deployment_mode" {
   description = "The current deployment mode"
   value       = var.local_testing_mode ? "local testing" : "cloud deployment"
 }
-
-# Output the Reasoning Engine endpoint URL
-output "reasoning_engine_endpoint" {
-  value       = google_vertex_ai_reasoning_engine_endpoint.animation_endpoint.uri
-  description = "URI of the deployed Reasoning Engine endpoint"
-}
