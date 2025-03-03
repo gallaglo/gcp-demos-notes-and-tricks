@@ -1,0 +1,9 @@
+google-auth>=2.23.0
+google-cloud-storage>=2.18.0
+langchain>=0.1.0
+langchain-core>=0.1.27
+langchain-google-vertexai>=2.0.0
+langgraph>=0.0.31
+vertexai>=1.43.0
+requests>=2.31.0
+python-dotenv>=1.0.0
