@@ -1,5 +1,3 @@
-# app.py - Updated for integration with Vertex AI Reasoning Engine
-
 from flask import Flask, request, jsonify
 from google.cloud import storage
 import os
