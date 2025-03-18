@@ -96,11 +96,8 @@ module "lb-http" {
     default = {
       description = null
       groups = [
-        {
-          group = google_compute_region_network_endpoint_group.serverless_neg[var.region_1].id
-        },
-        {
-          group = google_compute_region_network_endpoint_group.serverless_neg[var.region_2].id
+        for region in toset([var.region_1, var.region_2]) : {
+          group = google_compute_region_network_endpoint_group.serverless_neg[region].id
         }
       ]
       enable_cdn = false
