@@ -298,18 +298,18 @@ def create_animation_graph():
     workflow.add_node("handle_error", handle_error)
     
     # Define the edges
-    workflow.add_edge("generate_script", "check_script")
+    workflow.add_edge("generate_script", "check_errors_after_script")
     workflow.add_conditional_edges(
-        "check_script",
+        "check_errors_after_script",
         check_errors,
         {
             "handle_error": "handle_error",
             "next": "render_animation"
         }
     )
-    workflow.add_edge("render_animation", "check_render")
+    workflow.add_edge("render_animation", "check_errors_after_render")
     workflow.add_conditional_edges(
-        "check_render",
+        "check_errors_after_render",
         check_errors,
         {
             "handle_error": "handle_error",

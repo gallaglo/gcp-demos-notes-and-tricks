@@ -58,6 +58,14 @@ resource "google_service_account" "animator" {
   depends_on = [google_project_service.required_apis["iam.googleapis.com"]]
 }
 
+resource "google_service_account" "agent" {
+  account_id   = "agent-identity"
+  display_name = "Service identity of the agent service"
+  project      = var.project_id
+
+  depends_on = [google_project_service.required_apis["iam.googleapis.com"]]
+}
+
 resource "google_service_account" "frontend" {
   count        = local.create_cloud_resources ? 1 : 0
   account_id   = "frontend-identity"
@@ -67,7 +75,7 @@ resource "google_service_account" "frontend" {
   depends_on = [google_project_service.required_apis["iam.googleapis.com"]]
 }
 
-# Service account key 
+# Service account key for animator
 resource "google_service_account_key" "animator_sa_key" {
   service_account_id = google_service_account.animator.name
 }
@@ -107,6 +115,23 @@ resource "google_project_iam_member" "animator_roles" {
   project = var.project_id
   role    = each.value
   member  = "serviceAccount:${google_service_account.animator.email}"
+}
+
+# IAM roles for agent service account
+locals {
+  agent_iam_roles = [
+    "roles/storage.admin",
+    "roles/aiplatform.user",
+    "roles/run.invoker" # To invoke the Blender service
+  ]
+}
+
+resource "google_project_iam_member" "agent_roles" {
+  for_each = toset(local.agent_iam_roles)
+
+  project = var.project_id
+  role    = each.value
+  member  = "serviceAccount:${google_service_account.agent.email}"
 }
 
 # Cloud Run Services
@@ -194,42 +219,82 @@ resource "google_cloud_run_v2_service" "animator" {
   ]
 }
 
-# Service account for the Reasoning Engine
-resource "google_service_account" "reasoning_engine" {
-  account_id   = "reasoning-engine-identity"
-  display_name = "Service identity of the Reasoning Engine"
-  project      = var.project_id
+resource "google_cloud_run_v2_service" "agent" {
+  count               = local.create_cloud_resources ? 1 : 0
+  name                = "agent"
+  location            = var.region
+  project             = var.project_id
+  deletion_protection = false
 
-  depends_on = [google_project_service.required_apis["iam.googleapis.com"]]
-}
+  template {
+    containers {
+      image = var.agent_container_image
 
-# IAM roles for Reasoning Engine service account
-locals {
-  reasoning_engine_iam_roles = [
-    "roles/storage.admin",
-    "roles/aiplatform.user",
-    "roles/run.invoker" # To invoke the Blender service
+      ports {
+        container_port = 8080
+      }
+
+      resources {
+        limits = {
+          cpu    = "1000m"
+          memory = "2Gi"
+        }
+      }
+
+      startup_probe {
+        initial_delay_seconds = 15
+        timeout_seconds       = 5
+        period_seconds        = 10
+        failure_threshold     = 3
+        http_get {
+          path = "/health"
+          port = 8080
+        }
+      }
+
+      liveness_probe {
+        http_get {
+          path = "/health"
+          port = 8080
+        }
+        period_seconds    = 30
+        timeout_seconds   = 10
+        failure_threshold = 3
+      }
+
+      env {
+        name  = "BLENDER_SERVICE_URL"
+        value = google_cloud_run_v2_service.animator[0].uri
+      }
+
+      env {
+        name  = "GOOGLE_CLOUD_PROJECT"
+        value = var.project_id
+      }
+    }
+
+    service_account = google_service_account.agent.email
+
+    timeout = "300s"
+  }
+
+  depends_on = [
+    google_project_service.required_apis["run.googleapis.com"],
+    google_cloud_run_v2_service.animator
   ]
 }
 
-resource "google_project_iam_member" "reasoning_engine_roles" {
-  for_each = toset(local.reasoning_engine_iam_roles)
-
-  project = var.project_id
-  role    = each.value
-  member  = "serviceAccount:${google_service_account.reasoning_engine.email}"
-}
-
-# IAM for Cloud Run animator service to allow Reasoning Engine to invoke it
-resource "google_cloud_run_service_iam_member" "reasoning_engine_invokes_animator" {
+# IAM for Cloud Run animator service to allow agent to invoke it
+resource "google_cloud_run_service_iam_member" "agent_invokes_animator" {
+  count    = local.create_cloud_resources ? 1 : 0
   project  = var.project_id
   location = google_cloud_run_v2_service.animator[0].location
   service  = google_cloud_run_v2_service.animator[0].name
   role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.reasoning_engine.email}"
+  member   = "serviceAccount:${google_service_account.agent.email}"
 }
 
-# Frontend service - endpoint will be updated by the Cloud Build step
+# Frontend service - update the environment variables to use the agent service
 resource "google_cloud_run_v2_service" "frontend" {
   count               = local.create_cloud_resources ? 1 : 0
   name                = "frontend"
@@ -241,19 +306,32 @@ resource "google_cloud_run_v2_service" "frontend" {
     containers {
       image = var.frontend_container_image
 
-      # Cloud Build will update this environment variable
-      # with the correct Vertex endpoint
+      env {
+        name  = "LANGGRAPH_ENDPOINT"
+        value = google_cloud_run_v2_service.agent[0].uri
+      }
     }
 
     service_account = google_service_account.frontend[0].email
   }
 
   depends_on = [
-    google_project_service.required_apis["run.googleapis.com"]
+    google_project_service.required_apis["run.googleapis.com"],
+    google_cloud_run_v2_service.agent
   ]
 }
 
-# Public access policy
+# IAM for frontend to invoke the agent service
+resource "google_cloud_run_service_iam_member" "frontend_invokes_agent" {
+  count    = local.create_cloud_resources ? 1 : 0
+  project  = var.project_id
+  location = google_cloud_run_v2_service.agent[0].location
+  service  = google_cloud_run_v2_service.agent[0].name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.frontend[0].email}"
+}
+
+# Public access policy for frontend only
 data "google_iam_policy" "noauth" {
   binding {
     role = "roles/run.invoker"

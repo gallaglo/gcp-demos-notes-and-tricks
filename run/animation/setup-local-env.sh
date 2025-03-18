@@ -97,6 +97,11 @@ GOOGLE_CLOUD_PROJECT=${PROJECT_ID}
 GCS_BUCKET_NAME=${BUCKET_NAME}
 VERTEX_AI_LOCATION=${REGION}
 GOOGLE_APPLICATION_CREDENTIALS=${SERVICE_ACCOUNT_KEY_PATH}
+
+# Connection between services
+BLENDER_SERVICE_URL=http://animator:8080
+AGENT_SERVICE_URL=http://agent:8081
+NEXT_PUBLIC_AGENT_SERVICE_URL=http://localhost:8081
 EOF
 
 echo -e "${GREEN}Created local.env file with the following values:${NC}"
@@ -104,6 +109,9 @@ echo -e "GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"
 echo -e "GCS_BUCKET_NAME=${BUCKET_NAME}"
 echo -e "VERTEX_AI_LOCATION=${REGION}"
 echo -e "GOOGLE_APPLICATION_CREDENTIALS=${SERVICE_ACCOUNT_KEY_PATH}"
+echo -e "BLENDER_SERVICE_URL=http://animator:8080"
+echo -e "AGENT_SERVICE_URL=http://agent:8081"
+echo -e "NEXT_PUBLIC_AGENT_SERVICE_URL=http://localhost:8081"
 
 echo -e "\n${GREEN}You can now run:${NC}"
 echo -e "podman compose --env-file local.env up"

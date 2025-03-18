@@ -1,12 +1,15 @@
-# main.py - For local testing and development
 import os
 import json
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from animation_graph import run_animation_generation
 from dotenv import load_dotenv
 import logging
+from typing import Dict, Any, Optional
+import google.auth
+from google.auth.transport.requests import Request as GAuthRequest
+from google.oauth2 import id_token
 
 # Load environment variables
 load_dotenv()
@@ -23,7 +26,7 @@ if not os.environ.get("BLENDER_SERVICE_URL"):
 
 app = FastAPI(title="Animation Generator API")
 
-# Add CORS middleware for local development
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # For development; restrict in production
@@ -40,8 +43,21 @@ class AnimationResponse(BaseModel):
     generation_status: str
     error: str = ""
 
+def validate_token(authorization: str = "") -> Optional[str]:
+    """Validate the Firebase Auth token in the Authorization header."""
+    if not authorization.startswith("Bearer "):
+        return None
+    
+    token = authorization.split("Bearer ")[1]
+    return token
+
+def get_auth_info(request: Request) -> Dict[str, Any]:
+    """Extract and validate the authorization token from the request."""
+    auth_header = request.headers.get("Authorization", "")
+    return {"token": validate_token(auth_header)}
+
 @app.post("/generate", response_model=AnimationResponse)
-async def generate_animation(request: AnimationRequest):
+async def generate_animation(request: AnimationRequest, auth_info: Dict[str, Any] = Depends(get_auth_info)):
     """Generate a 3D animation from a text prompt"""
     try:
         # Run the LangGraph workflow
@@ -68,46 +84,6 @@ async def generate_animation(request: AnimationRequest):
             detail=f"An error occurred: {str(e)}"
         )
 
-# Vertex AI compatible endpoint
-@app.post("/vertexai")
-async def vertex_ai_handler(request: Request):
-    """Vertex AI compatible endpoint for Reasoning Engine deployment"""
-    try:
-        body = await request.json()
-        instances = body.get("instances", [])
-        
-        if not instances or len(instances) == 0:
-            raise HTTPException(
-                status_code=400,
-                detail="No instances provided"
-            )
-        
-        # Get the prompt from the first instance
-        prompt = instances[0].get("prompt")
-        if not prompt:
-            raise HTTPException(
-                status_code=400,
-                detail="No prompt provided in instance"
-            )
-        
-        # Run the LangGraph workflow
-        result = run_animation_generation(prompt)
-        
-        # Format the response for Vertex AI
-        predictions = [{
-            "generation_status": result.get("generation_status", "error"),
-            "signed_url": result.get("signed_url", ""),
-            "error": result.get("error", "")
-        }]
-        
-        return {"predictions": predictions}
-    except Exception as e:
-        logger.error(f"Error in Vertex AI handler: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error processing request: {str(e)}"
-        )
-
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
@@ -115,4 +91,4 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))

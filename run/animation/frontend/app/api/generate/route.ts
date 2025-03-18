@@ -2,22 +2,20 @@ import { NextResponse } from 'next/server';
 import { GoogleAuth } from 'google-auth-library';
 import { fetchWithRetry } from '@/lib/utils';
 
-// Vertex AI Reasoning Engine endpoint - add type assertion to handle TypeScript error
-const VERTEX_ENDPOINT = process.env.VERTEX_ENDPOINT as string;
-if (!VERTEX_ENDPOINT) {
-  throw new Error("VERTEX_ENDPOINT environment variable is not set");
-}
+// Safe handling of environment variables for build time
+// We use an empty string as default for build, but check at runtime
+const getEndpoint = () => {
+  return process.env.LANGGRAPH_ENDPOINT || '';
+};
 
-interface VertexRequest {
+interface AnimationRequest {
   prompt: string;
 }
 
-interface VertexResponse {
-  predictions: Array<{
-    generation_status: string;
-    signed_url?: string;
-    error?: string;
-  }>;
+interface AnimationResponse {
+  signed_url: string;
+  generation_status: string;
+  error?: string;
 }
 
 async function getIdToken(audience: string) {
@@ -29,31 +27,39 @@ async function getIdToken(audience: string) {
 
 export async function POST(request: Request) {
   try {
-    const { prompt } = await request.json() as VertexRequest;
+    // Get the endpoint at runtime
+    const endpoint = getEndpoint();
+    
+    // Check if endpoint is configured
+    if (!endpoint) {
+      console.error('LANGGRAPH_ENDPOINT is not set');
+      return NextResponse.json({ 
+        error: 'Animation service not configured properly. Please contact the administrator.' 
+      }, { status: 500 });
+    }
+    
+    const { prompt } = await request.json() as AnimationRequest;
     
     if (!prompt) {
       return NextResponse.json({ error: 'No prompt provided' }, { status: 400 });
     }
 
-    // Get ID token for Vertex AI
-    const idToken = await getIdToken(VERTEX_ENDPOINT);
+    // Log for debugging
+    console.log(`Sending request to LangGraph service at: ${endpoint}`);
+
+    // Get ID token for Cloud Run
+    const idToken = await getIdToken(endpoint);
     
-    // Request to Vertex AI Reasoning Engine
-    const vertexResponse = await fetchWithRetry(
-      VERTEX_ENDPOINT,
+    // Request to LangGraph Cloud Run service
+    const langGraphResponse = await fetchWithRetry(
+      `${endpoint}/generate`,
       {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${idToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          instances: [
-            {
-              prompt: prompt
-            }
-          ]
-        }),
+        body: JSON.stringify({ prompt }),
       },
       {
         maxAttempts: 5,
@@ -62,29 +68,24 @@ export async function POST(request: Request) {
       }
     );
 
-    const data = await vertexResponse.json() as VertexResponse;
+    const data = await langGraphResponse.json() as AnimationResponse;
     
-    // Extract the result from the Vertex AI response
-    const result = data.predictions[0];
-    
-    if (result.error) {
-      return NextResponse.json({ error: result.error }, { status: 500 });
+    if (data.error) {
+      return NextResponse.json({ error: data.error }, { status: 500 });
     }
     
-    if (result.generation_status !== 'completed') {
+    if (data.generation_status !== 'completed') {
       return NextResponse.json({ error: 'Animation generation failed' }, { status: 500 });
     }
     
-    if (!result.signed_url) {
+    if (!data.signed_url) {
       return NextResponse.json({ error: 'No signed URL in response' }, { status: 400 });
     }
 
     // Fetch the GLB file directly
     const glbResponse = await fetchWithRetry(
-      result.signed_url,
-      {
-        method: 'GET'
-      },
+      data.signed_url,
+      { method: 'GET' },
       {
         maxAttempts: 3,
         initialDelay: 1000,
@@ -95,14 +96,14 @@ export async function POST(request: Request) {
     // Stream the GLB file to the client
     const headers = new Headers();
     headers.set('Content-Type', 'model/gltf-binary');
-    headers.set('Content-Disposition', `inline; filename=${new URL(result.signed_url).pathname.split('/').pop()?.split('?')[0] || 'animation.glb'}`);
+    headers.set('Content-Disposition', `inline; filename=${new URL(data.signed_url).pathname.split('/').pop()?.split('?')[0] || 'animation.glb'}`);
     headers.set('Cache-Control', 'no-cache');
     
     return new NextResponse(glbResponse.body, {
       headers
     });
   } catch (error) {
-    console.error('Error:', error);
+    console.error('Error in animation generation:', error);
     if (error instanceof Response) {
       const errorText = await error.text();
       return NextResponse.json(
