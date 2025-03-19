@@ -14,36 +14,34 @@ services:
       - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}
       - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
       - VERTEX_AI_LOCATION=${VERTEX_AI_LOCATION:-us-central1}
-      # Use the specific service account key path
+      # Use the container path for service account key
       - GOOGLE_APPLICATION_CREDENTIALS=/app/animator-sa-key.json
     volumes:
-      # Mount the specific service account key
+      # Mount the service account key
       - ./animator-sa-key.json:/app/animator-sa-key.json:ro
     networks:
       - default
-
   # Agent service (LangGraph-based)
   agent:
     build:
       context: ./agent
       dockerfile: Dockerfile
     ports:
-      - "8081:8081"
+      - "8081:8080"
     environment:
-      - PORT=8081
+      - PORT=8080
       - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}
-      - BLENDER_SERVICE_URL=http://localhost:8080
+      - BLENDER_SERVICE_URL=http://animator:8080
       - VERTEX_AI_LOCATION=${VERTEX_AI_LOCATION:-us-central1}
-      # Use the specific service account key path
+      # Use the container path for service account key
       - GOOGLE_APPLICATION_CREDENTIALS=/app/animator-sa-key.json
     volumes:
-      # Mount the specific service account key
+      # Mount the service account key
       - ./animator-sa-key.json:/app/animator-sa-key.json:ro
     depends_on:
       - animator
     networks:
       - default
-
   # Frontend web app
   frontend:
     build:
@@ -53,13 +51,14 @@ services:
       - "3000:8080" # Map container port 8080 to host port 3000
     environment:
       - PORT=8080
-      - AGENT_SERVICE_URL=http://locatlhost:8081
-      - NEXT_PUBLIC_AGENT_SERVICE_URL=http://localhost:8081 # For client-side code
+      # Replace these with the correct variable names
+      - LANGGRAPH_ENDPOINT=http://agent:8080
+      - NEXT_PUBLIC_LANGGRAPH_ENDPOINT=http://localhost:8081
       - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}
-      # Use the same service account key path for frontend
+      # Use the container path for service account key
       - GOOGLE_APPLICATION_CREDENTIALS=/app/animator-sa-key.json
     volumes:
-      # Mount the specific service account key
+      # Mount the service account key
       - ./animator-sa-key.json:/app/animator-sa-key.json:ro
     depends_on:
       - agent

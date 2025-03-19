@@ -2,7 +2,7 @@
 import os
 import json
 import requests
-from typing import TypedDict, Dict, Any, Annotated, List
+from typing import TypedDict, Dict, Any, List
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langchain_google_vertexai import ChatVertexAI
 from langgraph.graph import StateGraph, END
@@ -273,19 +273,16 @@ def render_animation(state: AnimationState) -> AnimationState:
             "generation_status": "error"
         }
 
-def check_errors(state: AnimationState) -> str:
-    """Check for errors and determine next step."""
+def router(state: AnimationState) -> str:
+    """Route to the next node based on state."""
     if state.get("error"):
-        return "handle_error"
-    return "next"
-
-def handle_error(state: AnimationState) -> AnimationState:
-    """Log the error and ensure status is set."""
-    logger.error(f"Error in animation generation: {state.get('error')}")
-    return {
-        **state,
-        "generation_status": "error"
-    }
+        return "end"
+    if state.get("generation_status") == "script_generated":
+        return "render_animation"
+    if state.get("generation_status") == "completed":
+        return "end"
+    # Default case
+    return "generate_script"
 
 def create_animation_graph():
     """Create the LangGraph for animation generation."""
@@ -295,28 +292,24 @@ def create_animation_graph():
     # Add nodes
     workflow.add_node("generate_script", generate_blender_script)
     workflow.add_node("render_animation", render_animation)
-    workflow.add_node("handle_error", handle_error)
     
-    # Define the edges
-    workflow.add_edge("generate_script", "check_errors_after_script")
+    # Define edges with a single router function
     workflow.add_conditional_edges(
-        "check_errors_after_script",
-        check_errors,
+        "generate_script",
+        router,
         {
-            "handle_error": "handle_error",
-            "next": "render_animation"
+            "render_animation": "render_animation",
+            "end": END
         }
     )
-    workflow.add_edge("render_animation", "check_errors_after_render")
+    
     workflow.add_conditional_edges(
-        "check_errors_after_render",
-        check_errors,
+        "render_animation",
+        router,
         {
-            "handle_error": "handle_error",
-            "next": END
+            "end": END
         }
     )
-    workflow.add_edge("handle_error", END)
     
     # Set the entry point
     workflow.set_entry_point("generate_script")
