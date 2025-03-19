@@ -2,31 +2,57 @@ import { NextResponse } from 'next/server';
 import { GoogleAuth } from 'google-auth-library';
 import { fetchWithRetry } from '@/lib/utils';
 
-const BACKEND_SERVICE_URL = process.env.BACKEND_SERVICE_URL || 'https://animator-342279517497.us-central1.run.app';
+// Safe handling of environment variables for build time
+// We use an empty string as default for build, but check at runtime
+const getEndpoint = () => {
+  return process.env.LANGGRAPH_ENDPOINT || '';
+};
 
-interface GenerateResponse {
-  signed_url: string;
+interface AnimationRequest {
+  prompt: string;
 }
 
-async function getIdToken() {
+interface AnimationResponse {
+  signed_url: string;
+  generation_status: string;
+  error?: string;
+}
+
+async function getIdToken(audience: string) {
   const auth = new GoogleAuth();
-  const client = await auth.getIdTokenClient(BACKEND_SERVICE_URL);
+  const client = await auth.getIdTokenClient(audience);
   const headers = await client.getRequestHeaders();
   return headers.Authorization.split(' ')[1];
 }
 
 export async function POST(request: Request) {
   try {
-    const { prompt } = await request.json();
+    // Get the endpoint at runtime
+    const endpoint = getEndpoint();
+    
+    // Check if endpoint is configured
+    if (!endpoint) {
+      console.error('LANGGRAPH_ENDPOINT is not set');
+      return NextResponse.json({ 
+        error: 'Animation service not configured properly. Please contact the administrator.' 
+      }, { status: 500 });
+    }
+    
+    const { prompt } = await request.json() as AnimationRequest;
+    
     if (!prompt) {
       return NextResponse.json({ error: 'No prompt provided' }, { status: 400 });
     }
 
-    const idToken = await getIdToken();
+    // Log for debugging
+    console.log(`Sending request to LangGraph service at: ${endpoint}`);
+
+    // Get ID token for Cloud Run
+    const idToken = await getIdToken(endpoint);
     
-    // First request to get signed URL with retry
-    const response = await fetchWithRetry(
-      `${BACKEND_SERVICE_URL}/generate`,
+    // Request to LangGraph Cloud Run service
+    const langGraphResponse = await fetchWithRetry(
+      `${endpoint}/generate`,
       {
         method: 'POST',
         headers: {
@@ -42,21 +68,24 @@ export async function POST(request: Request) {
       }
     );
 
-    const data = await response.json() as GenerateResponse;
-    const signedUrl = data.signed_url;
+    const data = await langGraphResponse.json() as AnimationResponse;
     
-    if (!signedUrl) {
+    if (data.error) {
+      return NextResponse.json({ error: data.error }, { status: 500 });
+    }
+    
+    if (data.generation_status !== 'completed') {
+      return NextResponse.json({ error: 'Animation generation failed' }, { status: 500 });
+    }
+    
+    if (!data.signed_url) {
       return NextResponse.json({ error: 'No signed URL in response' }, { status: 400 });
     }
 
-    // Second request to fetch GLB file with retry
+    // Fetch the GLB file directly
     const glbResponse = await fetchWithRetry(
-      signedUrl,
-      {
-        headers: {
-          'Authorization': `Bearer ${idToken}`,
-        },
-      },
+      data.signed_url,
+      { method: 'GET' },
       {
         maxAttempts: 3,
         initialDelay: 1000,
@@ -64,17 +93,17 @@ export async function POST(request: Request) {
       }
     );
 
-    // Stream the GLB file
+    // Stream the GLB file to the client
     const headers = new Headers();
     headers.set('Content-Type', 'model/gltf-binary');
-    headers.set('Content-Disposition', `inline; filename=${new URL(signedUrl).pathname.split('/').pop()?.split('?')[0]}`);
+    headers.set('Content-Disposition', `inline; filename=${new URL(data.signed_url).pathname.split('/').pop()?.split('?')[0] || 'animation.glb'}`);
     headers.set('Cache-Control', 'no-cache');
     
     return new NextResponse(glbResponse.body, {
-      headers,
+      headers
     });
   } catch (error) {
-    console.error('Error:', error);
+    console.error('Error in animation generation:', error);
     if (error instanceof Response) {
       const errorText = await error.text();
       return NextResponse.json(

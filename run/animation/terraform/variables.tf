@@ -1,28 +1,34 @@
 variable "project_id" {
-  description = "The ID of the Google Cloud project"
+  description = "Google Cloud Project ID"
   type        = string
 }
 
 variable "region" {
-  description = "The region to deploy to"
+  description = "Google Cloud region"
   type        = string
   default     = "us-central1"
 }
 
 variable "animator_container_image" {
-  description = "The container image URL for the animator service"
+  description = "Container image for the Blender animation service"
   type        = string
-  default     = ""
+  default     = "gcr.io/your-project-id/animator:latest"
+}
+
+variable "agent_container_image" {
+  description = "Container image for the LangGraph service"
+  type        = string
+  default     = "gcr.io/your-project-id/langgraph:latest"
 }
 
 variable "frontend_container_image" {
-  description = "The container image URL for the frontend service"
+  description = "Container image for the frontend service"
   type        = string
-  default     = ""
+  default     = "gcr.io/your-project-id/frontend:latest"
 }
 
 variable "local_testing_mode" {
-  description = "If true, skips creation of Cloud Run services for local development"
+  description = "Enable local testing mode (disables cloud resources)"
   type        = bool
   default     = false
 }

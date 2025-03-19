@@ -4,19 +4,18 @@ Containerized web application that generates animations based on user prompts us
 
 ![Animation Generator](animation-app.gif)
 
-> **Note**: This demo is based on the [Securing Cloud Run services tutorial](https://cloud.google.com/run/docs/tutorials/secure-services) from the Google Cloud documentation.
-
 ## Architecture
 
 The application processes animation requests through the following workflow:
 
-1. Frontend sends animation prompt to backend
-2. Backend validates prompt and calls LLM API
-3. Backend validates generated [Blender script](https://docs.blender.org/api/current/info_overview.html)
-4. Backend executes script in Blender
-5. Backend saves animation to GCS
-6. Backend returns GCS URL to frontend
-7. Frontend loads and displays animation
+1. Frontend sends animation prompt to Agent Service
+2. Agent Service validates prompt and calls LLM API
+3. Agent Service generates a Blender script
+4. Agent Service sends the script to Animator Service
+5. Animator Service validates and executes the script in Blender
+6. Animator Service saves animation to Cloud Storage
+7. Agent Service returns the signed URL to frontend
+8. Frontend loads and displays animation
 
 ```mermaid
 flowchart LR
@@ -29,23 +28,32 @@ flowchart LR
         ThreeJS[Three.js Viewer]
     end
     
-    subgraph "Animator App"
-        FlaskAPI[Flask API]
-        BlenderScriptGen[BlenderScriptGenerator]
+    subgraph "Agent Service"
+        AgentAPI[FastAPI]
+        LangGraph[LangGraph Workflow]
+        ScriptGen[BlenderScriptGenerator]
+    end
+    
+    subgraph "Animator Service"
+        AnimatorAPI[Flask API]
         BlenderRunner[BlenderRunner]
         GCSUploader[GCSUploader]
     end
     
     User -->|"Submit animation prompt"| WebUI
-    WebUI -->|"Send prompt to /generate endpoint"| FlaskAPI
-    FlaskAPI -->|"Pass user prompt"| BlenderScriptGen
-    BlenderScriptGen -->|"Request script"| VertexAI
-    VertexAI -->|"Return script"| BlenderScriptGen
-    BlenderScriptGen -->|"Validate script"| BlenderRunner
+    WebUI -->|"Send prompt to agent"| AgentAPI
+    AgentAPI -->|"Process with LangGraph"| LangGraph
+    LangGraph -->|"Generate script"| ScriptGen
+    ScriptGen -->|"Request script"| VertexAI
+    VertexAI -->|"Return script"| ScriptGen
+    ScriptGen -->|"Generate script"| LangGraph
+    LangGraph -->|"Send script to animator"| AnimatorAPI
+    AnimatorAPI -->|"Validate script"| BlenderRunner
     BlenderRunner -->|"Generate GLB animation"| GCSUploader
     GCSUploader -->|"Upload files"| GCS
-    GCS -->|"Return signed URL"| FlaskAPI
-    FlaskAPI -->|"Return Signed URL response"| ThreeJS
+    GCS -->|"Return signed URL"| AnimatorAPI
+    AnimatorAPI -->|"Return signed URL"| AgentAPI
+    AgentAPI -->|"Return signed URL"| ThreeJS
     ThreeJS -->|"Display animation"| User
 ```
 
@@ -117,6 +125,11 @@ gcloud auth configure-docker ${REGION}-docker.pkg.dev
 # Build frontend image
 gcloud builds submit ./frontend \
     --tag ${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/frontend:latest
+
+# Build agent image
+gcloud builds submit ./agent-service \
+    --tag ${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/agent:latest
+
 # Build animator image
 gcloud builds submit ./animator \
     --tag ${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/animator:latest
@@ -134,6 +147,7 @@ cat << EOF > terraform.tfvars
 project_id = "${PROJECT_ID}"
 region = "${REGION}"
 animator_container_image = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/animator:latest"
+agent_container_image = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/agent:latest"
 frontend_container_image = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/frontend:latest"
 EOF
 # Initialize terraform

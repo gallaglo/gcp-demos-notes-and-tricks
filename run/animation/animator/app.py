@@ -1,7 +1,5 @@
 from flask import Flask, request, jsonify
-from langchain_google_vertexai import ChatVertexAI
 from google.cloud import storage
-import vertexai
 import os
 import subprocess
 import tempfile
@@ -9,7 +7,7 @@ import uuid
 import logging
 import datetime
 from functools import lru_cache
-from prompts import BLENDER_PROMPT
+from typing import Dict, Any
 
 app = Flask(__name__)
 
@@ -17,10 +15,8 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize Vertex AI
+# Get project ID for logging
 project_id = os.getenv('GOOGLE_CLOUD_PROJECT')
-location = os.getenv('VERTEX_AI_LOCATION', 'us-central1')
-vertexai.init(project=project_id, location=location)
 
 @lru_cache()
 def get_storage_client():
@@ -48,126 +44,51 @@ def get_bucket():
         logger.error(f"Error accessing bucket {bucket_name}: {e}")
         raise
 
-@lru_cache()
-def get_llm():
-    """Creates the LLM instance using the environment variable GOOGLE_API_KEY"""
-    try:
-        llm = ChatVertexAI(
-            model_name="gemini-2.0-flash-001",  # Using Flash model
-            temperature=1.0,
-            top_p=0.95,
-            max_output_tokens=4096,
-            request_timeout=60,  # Flash typically needs less time
-            max_retries=3
-        )
-        logger.info("Successfully initialized LLM")
-        return llm
-    except Exception as e:
-        logger.error(f"Failed to initialize LLM: {str(e)}")
-        raise
-
-# Initialize components
+# Initialize storage components
 try:
     bucket = get_bucket()
-    llm = get_llm()
-    logger.info("Successfully initialized storage and LLM components")
+    logger.info("Successfully initialized storage component")
 except Exception as e:
     logger.error(f"Failed to initialize components: {str(e)}")
     raise
 
-class BlenderScriptGenerator:
-    def generate(self, prompt: str) -> str:
+class BlenderScriptValidator:
+    @staticmethod
+    def validate_script(script: str) -> Dict[str, Any]:
+        """Validate the Blender script for security and required components."""
         try:
-            logger.info("Sending prompt to LLM")
-            # Use the LangChain prompt template
-            formatted_prompt = BLENDER_PROMPT.format(user_prompt=prompt)
-            response = llm.invoke(formatted_prompt)
+            # Check for forbidden terms
+            forbidden_terms = ['subprocess', 'os.system', 'eval(', 'exec(']
+            for term in forbidden_terms:
+                if term in script:
+                    return {
+                        'valid': False,
+                        'error': f'Script contains forbidden term: {term}'
+                    }
             
-            # Extract content from AIMessage
-            if hasattr(response, 'content'):
-                raw_content = response.content
-            else:
-                raw_content = str(response)
+            # Required components to check
+            required_components = [
+                'import sys',
+                'import bpy',
+                'sys.argv',
+                'bpy.ops.export_scene.gltf(',
+                'filepath=output_path',
+                'export_format=\'GLB\'',
+            ]
             
-            # Extract script from between triple backticks
-            if '```python' in raw_content and '```' in raw_content:
-                script = raw_content.split('```python')[1].split('```')[0].strip()
-            else:
-                script = raw_content.strip()
-                
-            if not script:
-                logger.error("Generated script is empty")
-                raise ValueError("Empty script generated")
+            for component in required_components:
+                if component not in script:
+                    return {
+                        'valid': False,
+                        'error': f'Script missing required component: {component}'
+                    }
             
-            # Inject the command-line argument handling
-            script = self._modify_script_for_output_path(script)
-            
-            # Validate script has required components
-            self._validate_script_requirements(script)
-            
-            return script
+            return {'valid': True}
         except Exception as e:
-            logger.error(f"Error generating script: {str(e)}")
-            raise ValueError(f"Failed to generate script: {str(e)}")
-
-    def _modify_script_for_output_path(self, script: str) -> str:
-        # Remove any existing output path assignments
-        lines = script.split('\n')
-        filtered_lines = [
-            line for line in lines 
-            if not ('output_path =' in line and 'os.path' in line)
-        ]
-        
-        # Find the position after the imports
-        import_end_idx = 0
-        for i, line in enumerate(filtered_lines):
-            if line.strip().startswith('import '):
-                import_end_idx = i + 1
-        
-        # Insert our path handling code
-        path_handling = [
-            "",
-            "# Get output path from command line arguments",
-            "if \"--\" not in sys.argv:",
-            "    raise Exception(\"Please provide the output path after '--'\")",
-            "output_path = sys.argv[sys.argv.index(\"--\") + 1]",
-            ""
-        ]
-        
-        # Ensure sys is imported
-        if 'import sys' not in script:
-            path_handling.insert(0, "import sys")
-        
-        # Combine everything
-        modified_script = (
-            '\n'.join(filtered_lines[:import_end_idx]) + 
-            '\n' + 
-            '\n'.join(path_handling) + 
-            '\n' + 
-            '\n'.join(filtered_lines[import_end_idx:])
-        )
-        
-        return modified_script
-
-    def _validate_script_requirements(self, script: str) -> None:
-        # Check for forbidden terms
-        forbidden_terms = ['subprocess']
-        for term in forbidden_terms:
-            if term in script:
-                raise ValueError(f'Generated script contains forbidden term: {term}')
-        
-        # Required components to check
-        required_components = [
-            'import sys',
-            'sys.argv',
-            'bpy.ops.export_scene.gltf(',
-            'filepath=output_path',
-            'export_format=\'GLB\'',
-        ]
-        
-        for component in required_components:
-            if component not in script:
-                raise ValueError(f'Generated script missing required component: {component}')
+            return {
+                'valid': False,
+                'error': f'Validation error: {str(e)}'
+            }
 
 class BlenderRunner:
     @staticmethod
@@ -301,8 +222,9 @@ def health():
             'error': str(e)
         }), 500
 
-@app.route('/generate', methods=['POST'])
-def generate():
+@app.route('/render', methods=['POST'])
+def render():
+    """Endpoint for rendering a Blender script received from LangGraph."""
     if not request.content_type or 'application/json' not in request.content_type:
         return jsonify({'error': 'Request must be JSON'}), 400
     
@@ -311,17 +233,24 @@ def generate():
     except Exception:
         return jsonify({'error': 'Invalid JSON format'}), 400
     
-    prompt = data.get('prompt')
-    if not prompt:
-        return jsonify({'error': 'No prompt provided'}), 400
+    # Get script and prompt from request
+    script = data.get('script')
+    prompt = data.get('prompt', 'No prompt provided')  # For logging
+    
+    if not script:
+        return jsonify({'error': 'No script provided'}), 400
     
     try:
-        script_generator = BlenderScriptGenerator()
+        # First, validate the script for security
+        validator = BlenderScriptValidator()
+        validation_result = validator.validate_script(script)
+        
+        if not validation_result['valid']:
+            return jsonify({'error': validation_result['error']}), 400
+        
+        # Script is valid, proceed with rendering
         blender_runner = BlenderRunner()
         gcs_uploader = GCSUploader(bucket)
-        
-        script = script_generator.generate(prompt)
-        logger.info("Script generation completed")
         
         with tempfile.TemporaryDirectory() as temp_dir:
             script_path = os.path.join(temp_dir, 'animation.py')
@@ -350,6 +279,25 @@ def generate():
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+# Keep the original /generate endpoint for backward compatibility
+@app.route('/generate', methods=['POST'])
+def generate():
+    if not request.content_type or 'application/json' not in request.content_type:
+        return jsonify({'error': 'Request must be JSON'}), 400
+    
+    try:
+        data = request.get_json()
+    except Exception:
+        return jsonify({'error': 'Invalid JSON format'}), 400
+        
+    prompt = data.get('prompt')
+    if not prompt:
+        return jsonify({'error': 'No prompt provided'}), 400
+    
+    return jsonify({
+        'error': 'This endpoint is deprecated. Please use Vertex AI Reasoning Engine.'
+    }), 400
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
