@@ -16,6 +16,9 @@ COPY components/ ./components/
 COPY lib/ ./lib/
 COPY public/ ./public/
 
+# Set environment variables
+ENV NEXT_PUBLIC_API_URL=""
+
 # Build the application
 RUN npm run build
 
