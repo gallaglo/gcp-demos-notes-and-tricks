@@ -51,9 +51,8 @@ services:
       - "3000:8080" # Map container port 8080 to host port 3000
     environment:
       - PORT=8080
-      # Replace these with the correct variable names
       - LANGGRAPH_ENDPOINT=http://agent:8080
-      - NEXT_PUBLIC_LANGGRAPH_ENDPOINT=http://localhost:8081
+      - NEXT_PUBLIC_API_BASE_URL=/api
       - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}
       # Use the container path for service account key
       - GOOGLE_APPLICATION_CREDENTIALS=/app/animator-sa-key.json
