@@ -68,33 +68,23 @@ def get_auth_info(request: Request) -> Dict[str, Any]:
     auth_header = request.headers.get("Authorization", "")
     return {"token": validate_token(auth_header)}
 
-@app.post("/generate", response_model=AnimationResponse)
-async def generate_animation(request: AnimationRequest, auth_info: Dict[str, Any] = Depends(get_auth_info)):
-    """Generate a 3D animation from a text prompt"""
+@app.post("/generate")
+async def generate_animation(request: AnimationRequest):
     try:
-        # Run the LangGraph workflow
         result = run_animation_generation(request.prompt)
         
-        # Check for errors
-        if result.get("error"):
-            raise HTTPException(
-                status_code=500, 
-                detail=f"Animation generation failed: {result['error']}"
-            )
-        
-        # Return the response
-        return AnimationResponse(
-            signed_url=result["signed_url"],
-            generation_status=result["generation_status"],
-            error=""
-        )
+        # Ensure consistent response structure
+        return {
+            "signed_url": result.get("signed_url", ""),
+            "generation_status": result.get("generation_status", ""),
+            "error": result.get("error", "")
+        }
     except Exception as e:
-        # Handle unexpected errors
-        logger.error(f"Error generating animation: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"An error occurred: {str(e)}"
-        )
+        return {
+            "signed_url": "",
+            "generation_status": "error",
+            "error": str(e)
+        }
 
 async def run_animation_generation_stream(prompt: str, **kwargs) -> AsyncGenerator[Dict[str, Any], None]:
     """Async version of run_animation_generation that yields events for streaming."""
