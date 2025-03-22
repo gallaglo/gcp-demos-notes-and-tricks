@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 
 export type MessageType = {
@@ -37,6 +37,12 @@ export function useAnimationStream() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isError, setIsError] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
+  
+  // Use a ref to track the current prompt being processed to avoid duplicates
+  const currentPromptRef = useRef<string | null>(null);
+  
+  // Use a Set to track messages we've already added locally
+  const localMessageContentsRef = useRef<Set<string>>(new Set());
 
   // Get the base URL dynamically in the browser
   const getBaseUrl = useCallback(() => {
@@ -65,6 +71,11 @@ export function useAnimationStream() {
       // Update state
       if (data.messages) {
         setMessages(data.messages);
+        
+        // Update our local message tracking set
+        data.messages.forEach((msg: MessageType) => {
+          localMessageContentsRef.current.add(msg.content);
+        });
       }
       
       if (data.signedUrl) {
@@ -135,14 +146,34 @@ export function useAnimationStream() {
           messageType = data.type;
         }
         
+        const messageContent = data.content || '';
+        
+        // Skip initial messages that match our current prompt's initial message
+        if (messageType === 'ai' && 
+            currentPromptRef.current && 
+            messageContent.includes(`I'm generating a 3D animation based on your request: '${currentPromptRef.current}'`)) {
+          console.log("Skipping duplicate initial message:", messageContent);
+          return;
+        }
+        
+        // Check if we've already seen this message content
+        if (localMessageContentsRef.current.has(messageContent)) {
+          console.log("Skipping already displayed message:", messageContent);
+          return;
+        }
+        
         const messageData: MessageType = {
           id,
           type: messageType,
-          content: data.content || '',
+          content: messageContent
         };
         
-        // Check if we already have this message (by id)
+        // Add to our local tracking set
+        localMessageContentsRef.current.add(messageContent);
+        
+        // Add the message to the UI
         setMessages(prev => {
+          // Check if we already have this message (by id)
           const exists = prev.some(msg => msg.id === messageData.id);
           if (exists) {
             return prev;
@@ -183,6 +214,7 @@ export function useAnimationStream() {
         
       case 'end': {
         setIsLoading(false);
+        currentPromptRef.current = null; // Clear current prompt when done
         break;
       }
     }
@@ -190,23 +222,35 @@ export function useAnimationStream() {
   
   // Function to create a thread and stream events
   const generateAnimation = useCallback(async (prompt: string) => {
-    // Don't reset messages anymore, we want to keep the conversation history
     setIsError(false);
     setErrorMessage('');
     setStatus('Processing your request...');
     setIsLoading(true);
     
+    // Store the current prompt to help with deduplication
+    currentPromptRef.current = prompt;
+    
     try {
-      // Create a new message object
-      const newMessage: MessageType = { 
+      // Create a new message object for the human's prompt
+      const humanMessage: MessageType = { 
         id: uuidv4(),
         type: "human", 
         content: prompt 
       };
       
-      // IMPORTANT: Add the human message to local state immediately
-      // so it appears in the chat interface right away
-      setMessages(prevMessages => [...prevMessages, newMessage]);
+      // Add the initial processing message 
+      const initialMessage: MessageType = {
+        id: uuidv4(),
+        type: "ai",
+        content: `I'm generating a 3D animation based on your request: '${prompt}'. This might take a moment...`
+      };
+      
+      // Track these messages locally
+      localMessageContentsRef.current.add(humanMessage.content);
+      localMessageContentsRef.current.add(initialMessage.content);
+      
+      // Add the human message and initial AI message immediately
+      setMessages(prevMessages => [...prevMessages, humanMessage, initialMessage]);
       
       // Create a new thread or use existing one
       const endpoint = threadId 
@@ -215,14 +259,14 @@ export function useAnimationStream() {
       
       console.log(`Sending request to: ${endpoint}`);
       
-      // Send request to create/update thread
+      // Send request to create/update thread (only send the human message)
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          messages: [newMessage],
+          messages: [humanMessage],
         }),
       });
       
@@ -288,18 +332,55 @@ export function useAnimationStream() {
       }
       
       setIsLoading(false);
+      currentPromptRef.current = null;
     } catch (error) {
       console.error("Animation stream error:", error);
       setIsError(true);
       setErrorMessage(error instanceof Error ? error.message : 'Unknown error');
       setStatus('Error');
       setIsLoading(false);
+      currentPromptRef.current = null;
+      
+      // Add an error message
+      const errorContent = "Sorry, there was an error generating the animation. You can try another prompt if you'd like.";
+      
+      // Only add if we haven't already
+      if (!localMessageContentsRef.current.has(errorContent)) {
+        localMessageContentsRef.current.add(errorContent);
+        
+        setMessages(prev => [
+          ...prev, 
+          {
+            id: uuidv4(),
+            type: 'ai',
+            content: errorContent
+          }
+        ]);
+      }
     }
   }, [threadId, handleEvent, getBaseUrl]);
   
   // Function to stop the generation
   const stopGeneration = useCallback(() => {
     setIsLoading(false);
+    currentPromptRef.current = null;
+    
+    // Add a message indicating the generation was stopped
+    const stoppedContent = "The animation generation was interrupted. You can try another prompt if you'd like.";
+    
+    // Only add if we haven't already
+    if (!localMessageContentsRef.current.has(stoppedContent)) {
+      localMessageContentsRef.current.add(stoppedContent);
+      
+      setMessages(prev => [
+        ...prev,
+        {
+          id: uuidv4(),
+          type: 'ai',
+          content: stoppedContent
+        }
+      ]);
+    }
   }, []);
   
   // Function to clear chat history and start a new conversation
@@ -310,6 +391,8 @@ export function useAnimationStream() {
     setIsError(false);
     setErrorMessage('');
     setThreadId(null);
+    currentPromptRef.current = null;
+    localMessageContentsRef.current.clear();
     localStorage.removeItem('animationThreadId');
   }, []);
   
