@@ -9,11 +9,7 @@ from animation_graph import run_animation_generation, generate_blender_script, r
 from dotenv import load_dotenv
 import logging
 from typing import Dict, Any, Optional, List, AsyncGenerator
-import google.auth
-from google.auth.transport.requests import Request as GAuthRequest
-from google.oauth2 import id_token
 from uuid import uuid4
-from langchain_core.messages import HumanMessage, AIMessage
 
 # Load environment variables
 load_dotenv()
@@ -30,13 +26,14 @@ if not os.environ.get("BLENDER_SERVICE_URL"):
 
 app = FastAPI(title="Animation Generator API")
 
-# Add CORS middleware
+# Add improved CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # For development; restrict in production
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["Content-Type"],
 )
 
 # Store active threads (in-memory storage - not persistent)
@@ -55,23 +52,13 @@ class ThreadRequest(BaseModel):
     checkpoint: Optional[str] = None
     command: Optional[Dict[str, Any]] = None
 
-def validate_token(authorization: str = "") -> Optional[str]:
-    """Validate the Firebase Auth token in the Authorization header."""
-    if not authorization.startswith("Bearer "):
-        return None
-    
-    token = authorization.split("Bearer ")[1]
-    return token
-
-def get_auth_info(request: Request) -> Dict[str, Any]:
-    """Extract and validate the authorization token from the request."""
-    auth_header = request.headers.get("Authorization", "")
-    return {"token": validate_token(auth_header)}
-
 @app.post("/generate")
 async def generate_animation(request: AnimationRequest):
+    """Endpoint to generate an animation from a prompt."""
+    logger.info(f"Received animation request with prompt: {request.prompt}")
     try:
         result = run_animation_generation(request.prompt)
+        logger.info(f"Animation generation completed with result: {result}")
         
         # Ensure consistent response structure
         return {
@@ -80,6 +67,7 @@ async def generate_animation(request: AnimationRequest):
             "error": result.get("error", "")
         }
     except Exception as e:
+        logger.error(f"Error in animation generation: {str(e)}")
         return {
             "signed_url": "",
             "generation_status": "error",
@@ -260,17 +248,19 @@ async def stream_graph_events(thread_id: str,
         # Send error event
         yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
 
-@app.post("/api/thread/{thread_id}")
+@app.post("/thread/{thread_id}")
 async def handle_thread_request(
     thread_id: str,
     request: ThreadRequest,
     background_tasks: BackgroundTasks
 ):
     """Handle a thread request with SSE streaming."""
+    logger.info(f"Received thread request for thread: {thread_id}")
     
     # Create thread ID if not provided
     if thread_id == "new":
         thread_id = str(uuid4())
+        logger.info(f"Created new thread with ID: {thread_id}")
     
     # Initialize state with messages
     state = {"messages": request.messages}
@@ -286,6 +276,11 @@ async def handle_thread_request(
         media_type="text/event-stream"
     )
 
+@app.options("/{path:path}")
+async def preflight_handler(request: Request):
+    """Handle preflight OPTIONS requests"""
+    return {}
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
@@ -293,4 +288,6 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    port = int(os.environ.get("PORT", 8080))
+    logger.info(f"Starting server on port {port}")
+    uvicorn.run(app, host="0.0.0.0", port=port)
