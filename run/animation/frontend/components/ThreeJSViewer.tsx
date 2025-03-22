@@ -114,8 +114,8 @@ export default function ThreeJSViewer({
   const toggleAnimation = useCallback(() => {
     console.log("Toggle animation called. Current state:", isAnimationPlaying);
     
-    if (!animationRef.current) {
-      console.warn("No animation to toggle");
+    if (!animationRef.current || !clockRef.current) {
+      console.warn("No animation or clock to toggle");
       return;
     }
     
@@ -125,6 +125,9 @@ export default function ThreeJSViewer({
     
     // Update UI state
     handlePlayingChange(newPlayingState);
+    
+    // Important: Reset the clock delta to prevent time jumps when resuming
+    clockRef.current.getDelta();
     
     // Update animation action's paused state
     animationRef.current.paused = !newPlayingState;
@@ -138,6 +141,12 @@ export default function ThreeJSViewer({
     if (!isMounted || !containerRef.current) return;
     
     console.log("Setting up render loop");
+    
+    // Reset the clock when play state changes to prevent jumps
+    if (clockRef.current) {
+      clockRef.current.getDelta(); // Reset the delta time
+    }
+    
     const render = () => {
       renderCountRef.current++;
       
@@ -146,9 +155,14 @@ export default function ThreeJSViewer({
         console.log("Render frame:", renderCountRef.current, "Animation playing:", isAnimationPlaying);
       }
       
+      // Only update the animation if playing
       if (mixerRef.current && isAnimationPlaying) {
         const delta = clockRef.current?.getDelta() || 0;
         mixerRef.current.update(delta);
+      } else if (clockRef.current) {
+        // Important: still call getDelta even when paused to "consume" the time
+        // This prevents accumulation of time during pause
+        clockRef.current.getDelta();
       }
       
       if (controlsRef.current) {
@@ -181,10 +195,12 @@ export default function ThreeJSViewer({
     console.log("Initializing ThreeJS");
     const container = containerRef.current!;
 
-    // Clock for animation
-    const clock = new THREE.Clock();
+    // Clock for animation - start in autoStart=false mode to better control timing
+    const clock = new THREE.Clock(false);
     clockRef.current = clock;
-
+    // Start the clock
+    clock.start();
+    
     // Scene
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xf0f0f0);
