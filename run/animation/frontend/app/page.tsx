@@ -6,9 +6,22 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
-import { ArrowUpDown } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import ChatInterface from "@/components/ChatInterface";
 import { useAnimationStream } from '@/lib/hooks/useAnimationStream';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+// Define example prompts
+const EXAMPLE_PROMPTS = [
+  "planets orbiting sun in solar system",
+  "tumbling cube",
+  "bouncing ball"
+];
 
 // Dynamically import Three.js components with ssr: false to prevent window errors
 const ThreeJSViewer = dynamic(() => import('@/components/ThreeJSViewer'), { ssr: false });
@@ -16,7 +29,6 @@ const ThreeJSViewer = dynamic(() => import('@/components/ThreeJSViewer'), { ssr:
 export default function Home() {
   const [isMounted, setIsMounted] = useState(false);
   const [isAnimationPlaying, setIsAnimationPlaying] = useState(true);
-  const [layoutMode, setLayoutMode] = useState<'side-by-side' | 'stacked'>('side-by-side');
   
   // Use the animation stream hook
   const {
@@ -39,12 +51,9 @@ export default function Home() {
 
   // Handle sending a new message
   const handleSendMessage = async (message: string) => {
+    // The generateAnimation function from useAnimationStream will handle adding
+    // the message to the chat dialog and processing it
     generateAnimation(message);
-  };
-
-  // Toggle layout between side-by-side and stacked
-  const toggleLayout = () => {
-    setLayoutMode(prev => prev === 'side-by-side' ? 'stacked' : 'side-by-side');
   };
 
   // Handle status changes from viewer component
@@ -57,20 +66,36 @@ export default function Home() {
     // Errors are already handled by useAnimationStream
   };
 
+  // Handle example prompt selection
+  const handleExampleSelect = (prompt: string) => {
+    generateAnimation(prompt);
+  };
+
   return (
-    <div className="flex h-screen flex-col">
-      <div className="container flex flex-col gap-4 p-4 lg:p-8">
+    <div className="flex flex-col h-screen max-h-screen overflow-hidden">
+      {/* Header - fixed height */}
+      <div className="container flex-shrink-0 flex flex-col gap-4 p-4 lg:p-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Animation Generator</h1>
           <div className="flex gap-2">
-            <Button 
-              onClick={toggleLayout} 
-              variant="outline" 
-              size="sm"
-            >
-              <ArrowUpDown className="mr-2 h-4 w-4" />
-              Toggle Layout
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  Examples
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {EXAMPLE_PROMPTS.map((examplePrompt) => (
+                  <DropdownMenuItem
+                    key={examplePrompt}
+                    onClick={() => handleExampleSelect(examplePrompt)}
+                  >
+                    {examplePrompt}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button 
               onClick={() => clearConversation()} 
               variant="outline" 
@@ -84,23 +109,30 @@ export default function Home() {
         <Separator />
       </div>
       
-      <div className={`container grid flex-1 gap-6 lg:p-8 
-        ${layoutMode === 'side-by-side' ? 'md:grid-cols-[1fr_1fr]' : 'grid-cols-1'}`}>
+      {/* Main content area - takes remaining height */}
+      <div 
+        className="container flex-1 min-h-0 grid gap-6 p-4 lg:p-8 md:grid-cols-[1fr_1fr]"
+        style={{ height: 'calc(100vh - 124px)' }}
+      >
         
         {/* Chat Interface */}
-        <div className="flex flex-col gap-4 h-full">
-          <ChatInterface
-            messages={messages}
-            isLoading={isLoading}
-            onSendMessageAction={handleSendMessage}
-            onStopAction={stopGeneration}
-          />
+        <div className="flex flex-col h-full min-h-0 max-h-full">
+          <Card className="flex-1 overflow-hidden min-h-0 flex flex-col">
+            <CardContent className="p-4 overflow-hidden flex-1 flex flex-col min-h-0">
+              <ChatInterface
+                messages={messages}
+                isLoading={isLoading}
+                onSendMessageAction={handleSendMessage}
+                onStopAction={stopGeneration}
+              />
+            </CardContent>
+          </Card>
         </div>
 
         {/* Animation Viewer Panel */}
-        <div className="flex flex-col gap-4 h-full">
-          <Card className="flex-1">
-            <CardContent className="p-0 h-full">
+        <div className="flex flex-col h-full min-h-0">
+          <Card className="flex-1 overflow-hidden min-h-0">
+            <CardContent className="p-0 h-full min-h-0">
               {/* Only render the ThreeJSViewer component when mounted (client-side) */}
               {isMounted && (
                 <ThreeJSViewer 
@@ -115,13 +147,13 @@ export default function Home() {
           </Card>
           
           {status && (
-            <Alert>
+            <Alert className="mt-4 flex-shrink-0">
               <AlertDescription>{status}</AlertDescription>
             </Alert>
           )}
 
           {isError && (
-            <Alert variant="destructive">
+            <Alert variant="destructive" className="mt-4 flex-shrink-0">
               <AlertDescription>{errorMessage}</AlertDescription>
             </Alert>
           )}

@@ -25,6 +25,10 @@ export default function ThreeJSViewer({
   // State management
   const [isAnimationPlaying, setIsAnimationPlaying] = useState(initialIsPlaying);
   const [isMounted, setIsMounted] = useState(false);
+  const [hasAnimation, setHasAnimation] = useState(false);
+  
+  // This state is used specifically for UI rendering to ensure button visibility
+  const [animationAvailable, setAnimationAvailable] = useState(false);
   
   // Refs for tracking already processed URLs to prevent duplicate loading
   const loadedUrlRef = useRef<string | null>(null);
@@ -355,11 +359,14 @@ export default function ThreeJSViewer({
         action.play();
         action.paused = !initialIsPlaying;  // Set initial state correctly
         animationRef.current = action;
+        setHasAnimation(true);
+        setAnimationAvailable(true);
         
         handlePlayingChange(initialIsPlaying);
         console.log("Animation initialized with playing state:", initialIsPlaying);
       } else {
         console.log("No animations found in model");
+        setHasAnimation(false);
       }
       
       fitModelToView();
@@ -411,6 +418,8 @@ export default function ThreeJSViewer({
         
         mixerRef.current = mixer;
         animationRef.current = action;
+        setHasAnimation(true);
+        setAnimationAvailable(true);
         
         resetCamera();
       }
@@ -429,6 +438,33 @@ export default function ThreeJSViewer({
     });
     
   }, [isMounted, signedUrl, loadModel]);
+  
+  // Effect to ensure animation state tracking is consistent
+  useEffect(() => {
+    // Update the animationAvailable state based on whether animationRef has a value
+    const hasValidAnimation = animationRef.current !== null;
+    console.log("Animation availability check:", hasValidAnimation);
+    setAnimationAvailable(hasValidAnimation);
+    
+    // Check every 500ms for a short period after loading to ensure consistency
+    const checkInterval = setInterval(() => {
+      const currentlyHasAnimation = animationRef.current !== null;
+      if (currentlyHasAnimation !== animationAvailable) {
+        console.log("Animation availability updated:", currentlyHasAnimation);
+        setAnimationAvailable(currentlyHasAnimation);
+      }
+    }, 500);
+    
+    // Clear interval after 5 seconds (or adjust as needed)
+    const clearTimer = setTimeout(() => {
+      clearInterval(checkInterval);
+    }, 5000);
+    
+    return () => {
+      clearInterval(checkInterval);
+      clearTimeout(clearTimer);
+    };
+  }, [signedUrl, animationAvailable]);
 
   // Handle server-side rendering
   if (!isMounted) {
@@ -459,7 +495,8 @@ export default function ThreeJSViewer({
           Fit to View
         </Button>
         
-        {animationRef.current && (
+        {/* Use multiple conditions to ensure button appears when animation is available */}
+        {(hasAnimation || animationAvailable || animationRef.current) && (
           <Button 
             variant="outline" 
             onClick={toggleAnimation}

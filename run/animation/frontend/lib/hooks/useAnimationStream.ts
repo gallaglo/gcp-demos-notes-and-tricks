@@ -38,19 +38,16 @@ export function useAnimationStream() {
   const [isError, setIsError] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
 
-  // Effect to load thread from localStorage on first mount
-  useEffect(() => {
-    const savedThreadId = localStorage.getItem('animationThreadId');
-    if (savedThreadId) {
-      setThreadId(savedThreadId);
-      
-      // Fetch the thread data
-      fetchThreadData(savedThreadId).catch(console.error);
+  // Get the base URL dynamically in the browser
+  const getBaseUrl = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      return `${window.location.protocol}//${window.location.host}`;
     }
+    return '';
   }, []);
   
   // Function to fetch thread data
-  const fetchThreadData = async (threadId: string) => {
+  const fetchThreadData = useCallback(async (threadId: string) => {
     try {
       const response = await fetch(`${getBaseUrl()}/api/thread/${threadId}`);
       
@@ -80,67 +77,114 @@ export function useAnimationStream() {
     } catch (error) {
       console.error("Error fetching thread data:", error);
     }
-  };
-
-  // Get the base URL dynamically in the browser
-  const getBaseUrl = () => {
-    if (typeof window !== 'undefined') {
-      return `${window.location.protocol}//${window.location.host}`;
+  }, [getBaseUrl]);
+  
+  // Effect to load thread from localStorage on first mount
+  useEffect(() => {
+    const savedThreadId = localStorage.getItem('animationThreadId');
+    if (savedThreadId) {
+      setThreadId(savedThreadId);
+      
+      // Fetch the thread data
+      fetchThreadData(savedThreadId).catch(console.error);
     }
-    return '';
-  };
+  }, [fetchThreadData]);
   
   // Process events from the stream
   const handleEvent = useCallback((event: AnimationCustomEvent) => {
     console.log("Received event:", event);
     
     switch (event.type) {
-      case 'state':
-        if (event.data && event.data.messages && Array.isArray(event.data.messages)) {
-          setMessages(event.data.messages);
-        }
-        break;
+      case 'state': {
+        // Use a block scope to avoid variable name conflicts
+        const data = event.data;
+        if (!data) break;
         
-      case 'message':
-        if (event.data) {
-          const messageData = {
-            id: event.data.id || uuidv4(),
-            type: event.data.type as 'human' | 'ai' || 'ai',
-            content: event.data.content || '',
-          };
+        const serverMessages = data.messages;
+        if (!serverMessages || !Array.isArray(serverMessages)) break;
+        
+        // Don't completely replace messages; merge with existing ones
+        setMessages(prevMessages => {
+          // Create a map of existing messages by ID for quick lookup
+          const existingMessagesMap = new Map(
+            prevMessages.map(msg => [msg.id, msg])
+          );
           
-          // Check if we already have this message (by id)
-          setMessages(prev => {
-            const exists = prev.some(msg => msg.id === messageData.id);
-            if (exists) {
-              return prev;
+          // Add any new messages from the server that we don't have yet
+          for (const serverMsg of serverMessages) {
+            if (!existingMessagesMap.has(serverMsg.id)) {
+              existingMessagesMap.set(serverMsg.id, serverMsg);
             }
-            return [...prev, messageData];
-          });
+          }
+          
+          // Convert back to array and sort by insertion order
+          // This preserves the conversation flow
+          return Array.from(existingMessagesMap.values());
+        });
+        break;
+      }
+        
+      case 'message': {
+        const data = event.data;
+        if (!data) break;
+        
+        const id = data.id || uuidv4();
+        let messageType: 'human' | 'ai' = 'ai';
+        
+        if (data.type === 'human' || data.type === 'ai') {
+          messageType = data.type;
+        }
+        
+        const messageData: MessageType = {
+          id,
+          type: messageType,
+          content: data.content || '',
+        };
+        
+        // Check if we already have this message (by id)
+        setMessages(prev => {
+          const exists = prev.some(msg => msg.id === messageData.id);
+          if (exists) {
+            return prev;
+          }
+          return [...prev, messageData];
+        });
+        break;
+      }
+        
+      case 'data': {
+        const data = event.data;
+        if (!data) break;
+        
+        const url = data.signed_url;
+        if (url) {
+          setSignedUrl(url);
         }
         break;
+      }
         
-      case 'data':
-        if (event.data?.signed_url) {
-          setSignedUrl(event.data.signed_url);
+      case 'status': {
+        const data = event.data;
+        if (!data) break;
+        
+        const newStatus = data.status;
+        if (newStatus) {
+          setStatus(newStatus);
         }
         break;
+      }
         
-      case 'status':
-        if (event.data?.status) {
-          setStatus(event.data.status);
-        }
-        break;
-        
-      case 'error':
+      case 'error': {
         setIsError(true);
         setErrorMessage(event.error || 'An unknown error occurred');
         setStatus('Error');
         break;
+      }
         
-      case 'end':
+      case 'end': {
         setIsLoading(false);
         break;
+      }
     }
   }, []);
   
@@ -159,6 +203,10 @@ export function useAnimationStream() {
         type: "human", 
         content: prompt 
       };
+      
+      // IMPORTANT: Add the human message to local state immediately
+      // so it appears in the chat interface right away
+      setMessages(prevMessages => [...prevMessages, newMessage]);
       
       // Create a new thread or use existing one
       const endpoint = threadId 
@@ -247,7 +295,7 @@ export function useAnimationStream() {
       setStatus('Error');
       setIsLoading(false);
     }
-  }, [threadId, handleEvent]);
+  }, [threadId, handleEvent, getBaseUrl]);
   
   // Function to stop the generation
   const stopGeneration = useCallback(() => {
