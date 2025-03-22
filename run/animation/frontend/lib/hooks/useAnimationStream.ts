@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 
 export type MessageType = {
@@ -38,6 +38,50 @@ export function useAnimationStream() {
   const [isError, setIsError] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
 
+  // Effect to load thread from localStorage on first mount
+  useEffect(() => {
+    const savedThreadId = localStorage.getItem('animationThreadId');
+    if (savedThreadId) {
+      setThreadId(savedThreadId);
+      
+      // Fetch the thread data
+      fetchThreadData(savedThreadId).catch(console.error);
+    }
+  }, []);
+  
+  // Function to fetch thread data
+  const fetchThreadData = async (threadId: string) => {
+    try {
+      const response = await fetch(`${getBaseUrl()}/api/thread/${threadId}`);
+      
+      if (!response.ok) {
+        // If thread not found, clear local storage
+        if (response.status === 404) {
+          localStorage.removeItem('animationThreadId');
+          setThreadId(null);
+        }
+        return;
+      }
+      
+      const data = await response.json();
+      
+      // Update state
+      if (data.messages) {
+        setMessages(data.messages);
+      }
+      
+      if (data.signedUrl) {
+        setSignedUrl(data.signedUrl);
+      }
+      
+      if (data.status) {
+        setStatus(data.status);
+      }
+    } catch (error) {
+      console.error("Error fetching thread data:", error);
+    }
+  };
+
   // Get the base URL dynamically in the browser
   const getBaseUrl = () => {
     if (typeof window !== 'undefined') {
@@ -64,7 +108,15 @@ export function useAnimationStream() {
             type: event.data.type as 'human' | 'ai' || 'ai',
             content: event.data.content || '',
           };
-          setMessages(prev => [...prev, messageData]);
+          
+          // Check if we already have this message (by id)
+          setMessages(prev => {
+            const exists = prev.some(msg => msg.id === messageData.id);
+            if (exists) {
+              return prev;
+            }
+            return [...prev, messageData];
+          });
         }
         break;
         
@@ -94,30 +146,26 @@ export function useAnimationStream() {
   
   // Function to create a thread and stream events
   const generateAnimation = useCallback(async (prompt: string) => {
-    // Reset state for new generation
-    setSignedUrl(null);
+    // Don't reset messages anymore, we want to keep the conversation history
     setIsError(false);
     setErrorMessage('');
-    setStatus('Starting generation');
+    setStatus('Processing your request...');
     setIsLoading(true);
     
     try {
-      // Create a new thread or use existing one
-      const endpoint = threadId 
-        ? `${getBaseUrl()}/api/thread/${threadId}` 
-        : `${getBaseUrl()}/api/thread/new`;
-      
-      console.log(`Sending request to: ${endpoint}`);
-      
-      // Create a message object
+      // Create a new message object
       const newMessage: MessageType = { 
         id: uuidv4(),
         type: "human", 
         content: prompt 
       };
       
-      // Add message to local state
-      setMessages(prev => [...prev, newMessage]);
+      // Create a new thread or use existing one
+      const endpoint = threadId 
+        ? `${getBaseUrl()}/api/thread/${threadId}` 
+        : `${getBaseUrl()}/api/thread/new`;
+      
+      console.log(`Sending request to: ${endpoint}`);
       
       // Send request to create/update thread
       const response = await fetch(endpoint, {
@@ -141,6 +189,8 @@ export function useAnimationStream() {
         const newThreadId = urlParts[urlParts.length - 1];
         if (newThreadId && newThreadId !== 'new') {
           setThreadId(newThreadId);
+          // Save to localStorage for persistence across refreshes
+          localStorage.setItem('animationThreadId', newThreadId);
         }
       }
       
@@ -199,16 +249,27 @@ export function useAnimationStream() {
     }
   }, [threadId, handleEvent]);
   
-  // Function to stop the generation (placeholder)
+  // Function to stop the generation
   const stopGeneration = useCallback(() => {
-    // This would be implemented if the server supports cancellation
     setIsLoading(false);
+  }, []);
+  
+  // Function to clear chat history and start a new conversation
+  const clearConversation = useCallback(() => {
+    setMessages([]);
+    setSignedUrl(null);
+    setStatus('');
+    setIsError(false);
+    setErrorMessage('');
+    setThreadId(null);
+    localStorage.removeItem('animationThreadId');
   }, []);
   
   return {
     generateAnimation,
     isLoading,
     stopGeneration,
+    clearConversation,
     messages,
     signedUrl,
     status,
