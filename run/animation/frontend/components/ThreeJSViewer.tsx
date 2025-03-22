@@ -25,10 +25,13 @@ export default function ThreeJSViewer({
   // State management
   const [isAnimationPlaying, setIsAnimationPlaying] = useState(initialIsPlaying);
   const [isMounted, setIsMounted] = useState(false);
+<<<<<<< HEAD
   const [hasAnimation, setHasAnimation] = useState(false);
   
   // This state is used specifically for UI rendering to ensure button visibility
   const [animationAvailable, setAnimationAvailable] = useState(false);
+=======
+>>>>>>> main
   
   // Refs for tracking already processed URLs to prevent duplicate loading
   const loadedUrlRef = useRef<string | null>(null);
@@ -359,14 +362,20 @@ export default function ThreeJSViewer({
         action.play();
         action.paused = !initialIsPlaying;  // Set initial state correctly
         animationRef.current = action;
+<<<<<<< HEAD
         setHasAnimation(true);
         setAnimationAvailable(true);
+=======
+>>>>>>> main
         
         handlePlayingChange(initialIsPlaying);
         console.log("Animation initialized with playing state:", initialIsPlaying);
       } else {
         console.log("No animations found in model");
+<<<<<<< HEAD
         setHasAnimation(false);
+=======
+>>>>>>> main
       }
       
       fitModelToView();
@@ -418,8 +427,11 @@ export default function ThreeJSViewer({
         
         mixerRef.current = mixer;
         animationRef.current = action;
+<<<<<<< HEAD
         setHasAnimation(true);
         setAnimationAvailable(true);
+=======
+>>>>>>> main
         
         resetCamera();
       }
@@ -438,6 +450,7 @@ export default function ThreeJSViewer({
     });
     
   }, [isMounted, signedUrl, loadModel]);
+<<<<<<< HEAD
   
   // Effect to ensure animation state tracking is consistent
   useEffect(() => {
@@ -465,6 +478,8 @@ export default function ThreeJSViewer({
       clearTimeout(clearTimer);
     };
   }, [signedUrl, animationAvailable]);
+=======
+>>>>>>> main
 
   // Handle server-side rendering
   if (!isMounted) {
@@ -495,8 +510,12 @@ export default function ThreeJSViewer({
           Fit to View
         </Button>
         
+<<<<<<< HEAD
         {/* Use multiple conditions to ensure button appears when animation is available */}
         {(hasAnimation || animationAvailable || animationRef.current) && (
+=======
+        {animationRef.current && (
+>>>>>>> main
           <Button 
             variant="outline" 
             onClick={toggleAnimation}
