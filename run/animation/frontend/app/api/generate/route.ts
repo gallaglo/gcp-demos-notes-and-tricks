@@ -3,11 +3,6 @@ import { GoogleAuth } from 'google-auth-library';
 import { fetchWithRetry } from '@/lib/utils';
 import { v4 as uuidv4 } from 'uuid';
 
-// Safe handling of environment variables
-const getEndpoint = () => {
-  return process.env.LANGGRAPH_ENDPOINT || '';
-};
-
 // Interfaces for type safety
 interface AnimationRequest {
   prompt: string;
@@ -32,8 +27,14 @@ async function getIdToken(audience: string) {
   }
 }
 
+// Get the endpoint from environment at runtime
+const getBackendURL = () => {
+  // Use proxy for client-side, direct URL for server-side
+  return process.env.LANGGRAPH_ENDPOINT || 'http://agent:8080';
+};
+
 // Streaming implementation for real-time updates
-async function* generateAnimationStream(prompt: string, endpoint: string, idToken: string) {
+async function* generateAnimationStream(prompt: string) {
   // Yield initial events
   yield { 
     type: 'status', 
@@ -41,15 +42,26 @@ async function* generateAnimationStream(prompt: string, endpoint: string, idToke
   };
 
   try {
+    // Get the backend endpoint and audience URL
+    const endpoint = getBackendURL();
+    
+    // Get authentication token for Cloud Run
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+    
+    // Only get token in production environments and when endpoint is a Cloud Run URL
+    if (process.env.NODE_ENV === 'production' && endpoint.includes('.run.app')) {
+      const idToken = await getIdToken(endpoint);
+      headers['Authorization'] = `Bearer ${idToken}`;
+    }
+
     // Initial request to start generation
     const initialResponse = await fetchWithRetry(
       `${endpoint}/generate`,
       {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${idToken}`,
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({ prompt }),
       },
       {
@@ -139,16 +151,6 @@ async function* generateAnimationStream(prompt: string, endpoint: string, idToke
 // POST handler for direct JSON response
 export async function POST(request: Request) {
   try {
-    // Get the endpoint at runtime
-    const endpoint = getEndpoint();
-    
-    // Validate endpoint configuration
-    if (!endpoint) {
-      return NextResponse.json({ 
-        error: 'Animation service not configured. Please contact administrator.' 
-      }, { status: 500 });
-    }
-    
     // Parse request body
     const { prompt } = await request.json() as AnimationRequest;
     
@@ -156,19 +158,27 @@ export async function POST(request: Request) {
     if (!prompt) {
       return NextResponse.json({ error: 'No prompt provided' }, { status: 400 });
     }
-
-    // Get ID token for Cloud Run
-    const idToken = await getIdToken(endpoint);
     
-    // Make request to LangGraph service
+    // Get the backend endpoint and audience URL
+    const endpoint = getBackendURL();
+    
+    // Setup headers
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+    
+    // Only get token in production environments and when endpoint is a Cloud Run URL
+    if (process.env.NODE_ENV === 'production' && endpoint.includes('.run.app')) {
+      const idToken = await getIdToken(endpoint);
+      headers['Authorization'] = `Bearer ${idToken}`;
+    }
+
+    // Make request to backend service
     const response = await fetchWithRetry(
       `${endpoint}/generate`,
       {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${idToken}`,
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({ prompt }),
       },
       {
@@ -206,14 +216,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'No prompt provided' }, { status: 400 });
   }
 
-  // Get the endpoint
-  const endpoint = getEndpoint();
-  if (!endpoint) {
-    return NextResponse.json({ 
-      error: 'Animation service not configured' 
-    }, { status: 500 });
-  }
-
   // Streaming response
   const encoder = new TextEncoder();
   
@@ -221,11 +223,8 @@ export async function GET(request: Request) {
     new ReadableStream({
       async start(controller) {
         try {
-          // Get ID token
-          const idToken = await getIdToken(endpoint);
-
           // Create generator for streaming events
-          const eventGenerator = generateAnimationStream(prompt, endpoint, idToken);
+          const eventGenerator = generateAnimationStream(prompt);
 
           // Stream events
           for await (const event of eventGenerator) {

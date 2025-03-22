@@ -14,6 +14,21 @@ const nextConfig: NextConfig = {
     }
   },
   output: 'standalone',
+  // Add API rewrites to proxy backend requests
+  async rewrites() {
+    // Make sure we have a valid endpoint with a fallback
+    const endpoint = process.env.LANGGRAPH_ENDPOINT || 'http://agent:8080';
+
+    // Add log to see what endpoint is being used
+    console.log("Next.js API rewrite using endpoint:", endpoint);
+    
+    return [
+      {
+        source: '/api/:path*',
+        destination: `${endpoint}/:path*`, // Proxy to the agent service
+      },
+    ];
+  },
   // Original webpack configuration
   webpack: (config: Configuration) => {
     // Handle canvas externals

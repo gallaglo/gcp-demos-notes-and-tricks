@@ -11,16 +11,24 @@ interface ThreeJSViewerProps {
   signedUrl: string | null;
   initialIsPlaying?: boolean;
   onPlayingChange?: (playing: boolean) => void;
+  onError?: (error: string) => void;
+  onStatusChange?: (status: string) => void;
 }
 
 export default function ThreeJSViewer({ 
   signedUrl, 
   initialIsPlaying = true,
-  onPlayingChange
+  onPlayingChange,
+  onError,
+  onStatusChange
 }: ThreeJSViewerProps) {
-  // Manage playing state internally
+  // State management
   const [isAnimationPlaying, setIsAnimationPlaying] = useState(initialIsPlaying);
   const [isMounted, setIsMounted] = useState(false);
+  
+  // Refs for tracking already processed URLs to prevent duplicate loading
+  const loadedUrlRef = useRef<string | null>(null);
+  const isLoadingRef = useRef(false);
   
   // Set isMounted to true after component mounts
   useEffect(() => {
@@ -36,50 +44,146 @@ export default function ThreeJSViewer({
     }
   }, [onPlayingChange]);
   
+  // Update status
+  const updateStatus = useCallback((status: string) => {
+    console.log("Status update:", status);
+    if (onStatusChange) {
+      onStatusChange(status);
+    }
+  }, [onStatusChange]);
+
+  // Handle errors
+  const handleError = useCallback((error: string) => {
+    console.error("Error in ThreeJSViewer:", error);
+    if (onError) {
+      onError(error);
+    }
+  }, [onError]);
+  
+  // Refs
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
-  const modelRef = useRef<THREE.Group | null>(null);
+  const modelRef = useRef<THREE.Object3D | null>(null);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const clockRef = useRef<THREE.Clock | null>(null);
   const animationRef = useRef<THREE.AnimationAction | null>(null);
   const animationFrameIdRef = useRef<number | null>(null);
+  const renderCountRef = useRef(0);
 
-  // Define fitModelToView before using it in useEffect
+  // Fit model to view
   const fitModelToView = useCallback(() => {
-    if (!isMounted || !modelRef.current || !cameraRef.current || !controlsRef.current) return;
+    if (!modelRef.current || !cameraRef.current || !controlsRef.current) return;
 
-    const box = new THREE.Box3().setFromObject(modelRef.current);
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
+    try {
+      const box = new THREE.Box3().setFromObject(modelRef.current);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
 
-    const maxDim = Math.max(size.x, size.y, size.z);
-    const fov = cameraRef.current.fov * (Math.PI / 180);
-    const cameraDistance = maxDim / (2 * Math.tan(fov / 2));
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const fov = cameraRef.current.fov * (Math.PI / 180);
+      const cameraDistance = maxDim / (2 * Math.tan(fov / 2));
 
-    cameraRef.current.position.copy(center);
-    cameraRef.current.position.z += cameraDistance * 1.5;
-    cameraRef.current.lookAt(center);
-    controlsRef.current.target.copy(center);
-    controlsRef.current.update();
-  }, [isMounted]);
+      cameraRef.current.position.copy(center);
+      cameraRef.current.position.z += cameraDistance * 1.5;
+      cameraRef.current.lookAt(center);
+      controlsRef.current.target.copy(center);
+      controlsRef.current.update();
+    } catch (e) {
+      console.error("Error in fitModelToView:", e);
+    }
+  }, []);
 
+  // Reset camera to default position
   const resetCamera = useCallback(() => {
-    if (!isMounted || !cameraRef.current || !controlsRef.current) return;
+    if (!cameraRef.current || !controlsRef.current) return;
     
-    cameraRef.current.position.set(0, 2, 10);
-    cameraRef.current.lookAt(0, 0, 0);
-    controlsRef.current.target.set(0, 0, 0);
-    controlsRef.current.update();
-  }, [isMounted]);
+    try {
+      cameraRef.current.position.set(0, 2, 10);
+      cameraRef.current.lookAt(0, 0, 0);
+      controlsRef.current.target.set(0, 0, 0);
+      controlsRef.current.update();
+    } catch (e) {
+      console.error("Error in resetCamera:", e);
+    }
+  }, []);
+
+  // Toggle animation playback
+  const toggleAnimation = useCallback(() => {
+    console.log("Toggle animation called. Current state:", isAnimationPlaying);
+    
+    if (!animationRef.current) {
+      console.warn("No animation to toggle");
+      return;
+    }
+    
+    // Toggle the playing state
+    const newPlayingState = !isAnimationPlaying;
+    console.log("Setting new animation state:", newPlayingState);
+    
+    // Update UI state
+    handlePlayingChange(newPlayingState);
+    
+    // Update animation action's paused state
+    animationRef.current.paused = !newPlayingState;
+    
+    console.log("Animation paused state set to:", animationRef.current.paused);
+    
+  }, [isAnimationPlaying, handlePlayingChange]);
+
+  // Animation rendering loop (completely separate from the animation state)
+  useEffect(() => {
+    if (!isMounted || !containerRef.current) return;
+    
+    console.log("Setting up render loop");
+    const render = () => {
+      renderCountRef.current++;
+      
+      // Log every 60 frames to avoid console spam
+      if (renderCountRef.current % 60 === 0) {
+        console.log("Render frame:", renderCountRef.current, "Animation playing:", isAnimationPlaying);
+      }
+      
+      if (mixerRef.current && isAnimationPlaying) {
+        const delta = clockRef.current?.getDelta() || 0;
+        mixerRef.current.update(delta);
+      }
+      
+      if (controlsRef.current) {
+        controlsRef.current.update();
+      }
+      
+      if (rendererRef.current && sceneRef.current && cameraRef.current) {
+        rendererRef.current.render(sceneRef.current, cameraRef.current);
+      }
+      
+      animationFrameIdRef.current = requestAnimationFrame(render);
+    };
+    
+    // Start the render loop
+    render();
+    
+    // Cleanup the render loop on unmount
+    return () => {
+      if (animationFrameIdRef.current) {
+        cancelAnimationFrame(animationFrameIdRef.current);
+        animationFrameIdRef.current = null;
+      }
+    };
+  }, [isMounted, isAnimationPlaying]);
 
   // Initialize ThreeJS
   useEffect(() => {
     if (!isMounted || !containerRef.current) return;
 
+    console.log("Initializing ThreeJS");
     const container = containerRef.current!;
+
+    // Clock for animation
+    const clock = new THREE.Clock();
+    clockRef.current = clock;
 
     // Scene
     const scene = new THREE.Scene();
@@ -119,141 +223,198 @@ export default function ThreeJSViewer({
     directionalLight.position.set(0, 1, 0);
     scene.add(directionalLight);
 
-    // Clock for animation
-    const clock = new THREE.Clock();
-    clockRef.current = clock;
-
     // Handle resize
     const handleResize = () => {
-      if (!container) return;
-      camera.aspect = container.clientWidth / container.clientHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(container.clientWidth, container.clientHeight);
+      if (!container || !cameraRef.current || !rendererRef.current) return;
+      cameraRef.current.aspect = container.clientWidth / container.clientHeight;
+      cameraRef.current.updateProjectionMatrix();
+      rendererRef.current.setSize(container.clientWidth, container.clientHeight);
     };
     window.addEventListener('resize', handleResize);
 
     return () => {
       window.removeEventListener('resize', handleResize);
-      renderer.dispose();
-      if (animationFrameIdRef.current) {
-        cancelAnimationFrame(animationFrameIdRef.current);
+      if (rendererRef.current) {
+        rendererRef.current.dispose();
       }
     };
   }, [isMounted]);
   
-  // Animation loop in separate useEffect to handle isAnimationPlaying dependency
-  useEffect(() => {
-    if (!isMounted || !cameraRef.current || !sceneRef.current || !rendererRef.current || !controlsRef.current) return;
+  // Function to load a model
+  const loadModel = useCallback(async (url: string) => {
+    if (!sceneRef.current) {
+      throw new Error('Scene not initialized');
+    }
     
-    const animate = () => {
-      animationFrameIdRef.current = requestAnimationFrame(animate);
-  
-      if (mixerRef.current && isAnimationPlaying) {
-        const delta = clockRef.current!.getDelta();
-        mixerRef.current.update(delta);
+    // Skip if already loading this URL
+    if (isLoadingRef.current && loadedUrlRef.current === url) {
+      console.log('Already loading this URL, skipping duplicate request');
+      return;
+    }
+    
+    // Skip if already loaded this URL
+    if (loadedUrlRef.current === url) {
+      console.log('URL already loaded, skipping');
+      return;
+    }
+    
+    // Set loading state
+    isLoadingRef.current = true;
+    loadedUrlRef.current = url;
+    updateStatus('Loading animation...');
+    
+    try {
+      // Use a proxy endpoint to avoid CORS issues
+      const response = await fetch('/api/proxy-model', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch model: ${response.statusText}`);
       }
-  
-      controlsRef.current!.update();
-      rendererRef.current!.render(sceneRef.current!, cameraRef.current!);
-    };
-    
-    animate();
-    
-    return () => {
-      if (animationFrameIdRef.current) {
-        cancelAnimationFrame(animationFrameIdRef.current);
-        animationFrameIdRef.current = null;
+      
+      // Get the ArrayBuffer directly from the response
+      const arrayBuffer = await response.arrayBuffer();
+      
+      console.log(`Received ${arrayBuffer.byteLength} bytes of model data`);
+      
+      // Use GLTFLoader to parse the downloaded data
+      const loader = new GLTFLoader();
+      
+      const gltf = await new Promise<GLTF>((resolve, reject) => {
+        loader.parse(
+          arrayBuffer,
+          '',
+          (gltf) => resolve(gltf),
+          (error) => {
+            console.error("GLTFLoader parse error:", error);
+            reject(error);
+          }
+        );
+      });
+      
+      // Remove existing model and mixer
+      if (modelRef.current && sceneRef.current) {
+        sceneRef.current.remove(modelRef.current);
+        modelRef.current = null;
       }
-    };
-  }, [isAnimationPlaying, isMounted]);
+      
+      if (mixerRef.current) {
+        mixerRef.current.stopAllAction();
+        mixerRef.current = null;
+      }
+      
+      if (animationRef.current) {
+        animationRef.current = null;
+      }
 
-  // Effect to load the model when signedUrl changes
-  useEffect(() => {
-    if (!isMounted || !signedUrl || !sceneRef.current) return;
-    
-    const loadModel = async () => {
-      try {
-        // Fetch the GLB file
-        const response = await fetch(signedUrl);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch model: ${response.statusText}`);
-        }
+      // Update model reference and add to scene
+      modelRef.current = gltf.scene;
+      sceneRef.current.add(gltf.scene);
+      console.log("Model added to scene");
+      
+      // Center and scale the model
+      const box = new THREE.Box3().setFromObject(gltf.scene);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const scale = 1 / maxDim;
+      gltf.scene.scale.setScalar(scale);
+      
+      gltf.scene.position.sub(center.multiplyScalar(scale));
+      
+      // Setup animation mixer
+      const mixer = new THREE.AnimationMixer(gltf.scene);
+      mixerRef.current = mixer;
+      
+      // Play first animation if available
+      if (gltf.animations.length > 0) {
+        console.log(`Found ${gltf.animations.length} animations in model`);
+        const action = mixer.clipAction(gltf.animations[0]);
+        action.play();
+        action.paused = !initialIsPlaying;  // Set initial state correctly
+        animationRef.current = action;
         
-        const arrayBuffer = await response.arrayBuffer();
-        const loader = new GLTFLoader();
-        
-        // Load the model
-        const gltf = await new Promise<GLTF>((resolve, reject) => {
-          loader.parse(
-            arrayBuffer,
-            '',
-            (gltf) => resolve(gltf),
-            (error) => reject(error)
-          );
+        handlePlayingChange(initialIsPlaying);
+        console.log("Animation initialized with playing state:", initialIsPlaying);
+      } else {
+        console.log("No animations found in model");
+      }
+      
+      fitModelToView();
+      updateStatus('Animation loaded successfully!');
+    } catch (error) {
+      console.error('Error loading model:', error);
+      handleError(error instanceof Error ? error.message : 'Unknown error loading model');
+      loadedUrlRef.current = null; // Allow retry by clearing the loaded URL
+      
+      // Create a simple default object on error
+      if (sceneRef.current) {
+        // Create a simple cube as a fallback
+        const geometry = new THREE.BoxGeometry(1, 1, 1);
+        const material = new THREE.MeshBasicMaterial({ 
+          color: 0xff0000,
+          wireframe: true 
         });
+        const cube = new THREE.Mesh(geometry, material);
         
-        // Remove existing model and mixer
-        if (modelRef.current && sceneRef.current) {
+        // Remove existing model if any
+        if (modelRef.current) {
           sceneRef.current.remove(modelRef.current);
         }
-        if (mixerRef.current) {
-          mixerRef.current.stopAllAction();
-        }
-
-        // Update model reference
-        modelRef.current = gltf.scene;
-
-        // Add new model to scene (with null check)
-        if (sceneRef.current) {
-          sceneRef.current.add(gltf.scene);
-        }
         
-        // Center and scale the model
-        const box = new THREE.Box3().setFromObject(gltf.scene);
-        const center = box.getCenter(new THREE.Vector3());
-        const size = box.getSize(new THREE.Vector3());
+        sceneRef.current.add(cube);
+        modelRef.current = cube;
         
-        const maxDim = Math.max(size.x, size.y, size.z);
-        const scale = 1 / maxDim;
-        gltf.scene.scale.setScalar(scale);
+        // Create a simple rotation animation for the cube
+        const mixer = new THREE.AnimationMixer(cube);
         
-        gltf.scene.position.sub(center.multiplyScalar(scale));
+        // Create a keyframe track that rotates the cube
+        const times = [0, 1, 2];
+        const rotationValues = [
+          0, 0, 0,
+          Math.PI, 0, 0,
+          Math.PI * 2, 0, 0
+        ];
         
-        // Setup animation mixer
-        const mixer = new THREE.AnimationMixer(gltf.scene);
+        const rotationTrack = new THREE.KeyframeTrack(
+          '.rotation[x]',
+          times,
+          rotationValues
+        );
+        
+        const clip = new THREE.AnimationClip('CubeRotation', 2, [rotationTrack]);
+        const action = mixer.clipAction(clip);
+        action.play();
+        action.paused = !initialIsPlaying;
+        
         mixerRef.current = mixer;
+        animationRef.current = action;
         
-        // Play first animation if available
-        if (gltf.animations.length > 0) {
-          const action = mixer.clipAction(gltf.animations[0]);
-          action.play();
-          animationRef.current = action;
-          handlePlayingChange(true);
-        }
-        
-        fitModelToView();
-      } catch (error) {
-        console.error('Error loading model:', error);
+        resetCamera();
       }
-    };
-    
-    loadModel();
-  }, [signedUrl, handlePlayingChange, isMounted, fitModelToView]);
-
-  const toggleAnimation = useCallback(() => {
-    if (!isMounted || !animationRef.current) return;
-    
-    const newPlayingState = !isAnimationPlaying;
-    handlePlayingChange(newPlayingState);
-    
-    if (isAnimationPlaying) {
-      animationRef.current.paused = true;
-    } else {
-      animationRef.current.paused = false;
+    } finally {
+      isLoadingRef.current = false;
     }
-  }, [isMounted, isAnimationPlaying, handlePlayingChange]);
+  }, [fitModelToView, handlePlayingChange, updateStatus, handleError, resetCamera, initialIsPlaying]);
+  
+  // Effect to load the model when signedUrl changes
+  useEffect(() => {
+    if (!isMounted || !signedUrl) return;
+    
+    console.log("Loading model with URL:", signedUrl);
+    loadModel(signedUrl).catch(err => {
+      console.error("Error in loadModel effect:", err);
+    });
+    
+  }, [isMounted, signedUrl, loadModel]);
 
-  // Handle server-side rendering by rendering only a placeholder div initially
+  // Handle server-side rendering
   if (!isMounted) {
     return <div className="w-full h-[calc(100vh-12rem)] rounded-lg bg-gray-100"></div>;
   }

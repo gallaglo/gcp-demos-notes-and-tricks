@@ -8,7 +8,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { Sparkles, Loader2 } from "lucide-react";
-import { useAnimationStream } from '@/lib/hooks/useAnimationStream';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,17 +28,10 @@ export default function Home() {
   const [prompt, setPrompt] = useState('');
   const [isAnimationPlaying, setIsAnimationPlaying] = useState(true);
   const [isMounted, setIsMounted] = useState(false);
-
-  // Use our animation stream hook
-  const {
-    generateAnimation,
-    isLoading,
-    messages,
-    signedUrl,
-    status,
-    isError,
-    errorMessage
-  } = useAnimationStream();
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [signedUrl, setSignedUrl] = useState<string | null>(null);
 
   // Set isMounted to true after component mounts
   useEffect(() => {
@@ -51,8 +43,55 @@ export default function Home() {
     e.preventDefault();
     if (!prompt.trim()) return;
     
-    // Use our streaming hook to generate the animation
-    generateAnimation(prompt);
+    setIsLoading(true);
+    setSignedUrl(null);
+    setStatus('Generating animation...');
+    setError('');
+    
+    try {
+      const response = await fetch('/api/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ prompt }),
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText);
+      }
+      
+      const data = await response.json();
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      
+      if (!data.signed_url) {
+        throw new Error('No URL received from server');
+      }
+      
+      // Set the signed URL for the ThreeJSViewer component
+      setSignedUrl(data.signed_url);
+      setStatus('Animation generated. Loading 3D model...');
+      
+    } catch (error) {
+      console.error('Error generating animation:', error);
+      setError(error instanceof Error ? error.message : 'Unknown error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle status changes from viewer component
+  const handleStatusChange = (newStatus: string) => {
+    setStatus(newStatus);
+  };
+  
+  // Handle errors from viewer component
+  const handleError = (errorMessage: string) => {
+    setError(errorMessage);
   };
 
   return (
@@ -122,28 +161,10 @@ export default function Home() {
               </Alert>
             )}
 
-            {isError && (
+            {error && (
               <Alert variant="destructive">
-                <AlertDescription>{errorMessage}</AlertDescription>
+                <AlertDescription>{error}</AlertDescription>
               </Alert>
-            )}
-
-            {/* Messages Panel - Show streaming updates */}
-            {messages.length > 1 && (
-              <Card className="max-h-[220px] overflow-y-auto">
-                <CardContent className="pt-4">
-                  <h3 className="font-semibold mb-2">Generation Log</h3>
-                  <div className="space-y-2">
-                    {messages.map((message) => (
-                      <div key={message.id} className="text-sm">
-                        {typeof message.content === 'string' 
-                          ? message.content 
-                          : JSON.stringify(message.content)}
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
             )}
           </div>
         </div>
@@ -158,6 +179,8 @@ export default function Home() {
                   signedUrl={signedUrl} 
                   initialIsPlaying={isAnimationPlaying}
                   onPlayingChange={setIsAnimationPlaying}
+                  onStatusChange={handleStatusChange}
+                  onError={handleError}
                 />
               )}
             </CardContent>
