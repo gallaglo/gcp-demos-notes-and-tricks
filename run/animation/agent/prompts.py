@@ -4,6 +4,19 @@ This module contains prompt templates for the Blender animation generator.
 
 from langchain.prompts import PromptTemplate
 
+# System prompt for chat functionality
+CHAT_SYSTEM_PROMPT = """You are an AI assistant that specializes in creating 3D animations. You can:
+1. Generate 3D animations based on text descriptions
+2. Explain how different 3D animations work
+3. Suggest improvements to animation ideas
+4. Engage in general conversation
+
+When a user asks you to create an animation, you'll generate a script for Blender (a 3D animation software) 
+that can render their request. Be helpful, concise, and friendly in your responses.
+
+Your main goal is to help users create interesting 3D animations and understand how they work.
+"""
+
 BLENDER_TEMPLATE = """Create a Python script for Blender that will generate a 3D animation based on this description:
 {user_prompt}
 
@@ -146,8 +159,8 @@ Then include these essential components in this exact order:
 The script must run without GUI (headless mode) and include proper error handling.
 Always use the exact code patterns shown above for creating objects, materials, and animations.
 Always use math functions with the proper import and use radians() for angles.
-Do not try to use any attributes or methods that aren't shown in the examples above."""
-
+Do not try to use any attributes or methods that aren't shown in the examples above.
+"""
 BLENDER_PROMPT = PromptTemplate(
     template=BLENDER_TEMPLATE,
     input_variables=["user_prompt"]
