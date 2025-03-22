@@ -1,6 +1,7 @@
 networks:
-  default:
+  app-network:
     name: app-network
+
 services:
   # Backend API service (animator)
   animator:
@@ -20,7 +21,8 @@ services:
       # Mount the service account key
       - ./animator-sa-key.json:/app/animator-sa-key.json:ro
     networks:
-      - default
+      - app-network
+
   # Agent service (LangGraph-based)
   agent:
     build:
@@ -41,19 +43,23 @@ services:
     depends_on:
       - animator
     networks:
-      - default
+      - app-network
+
   # Frontend web app
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        # Set the build-time argument for the Next.js build process
+        - LANGGRAPH_ENDPOINT=http://agent:8080
     ports:
       - "3000:8080" # Map container port 8080 to host port 3000
     environment:
       - PORT=8080
-      # Replace these with the correct variable names
+      # Runtime environment variables
       - LANGGRAPH_ENDPOINT=http://agent:8080
-      - NEXT_PUBLIC_LANGGRAPH_ENDPOINT=http://localhost:8081
+      - NEXT_PUBLIC_API_BASE_URL=/api
       - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}
       # Use the container path for service account key
       - GOOGLE_APPLICATION_CREDENTIALS=/app/animator-sa-key.json
@@ -63,4 +69,4 @@ services:
     depends_on:
       - agent
     networks:
-      - default
+      - app-network

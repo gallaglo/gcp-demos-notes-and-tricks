@@ -1,6 +1,11 @@
 FROM node:18-alpine AS builder
 WORKDIR /app
 
+# Set default build-time environment variables
+# This ensures the build doesn't fail if the variable isn't passed
+ARG LANGGRAPH_ENDPOINT=http://agent:8080
+ENV LANGGRAPH_ENDPOINT=${LANGGRAPH_ENDPOINT}
+
 # First copy only package files to leverage cache for npm ci
 COPY package*.json ./
 RUN npm ci
