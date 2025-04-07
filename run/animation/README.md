@@ -137,23 +137,20 @@ gcloud builds submit ./animator \
 
 #### 7. Deploy to Cloud Run
 
-Create a `terraform.tfvars` file in the terraform directory with your configuration:
+Navigate to the `terraform/` directory and run Terraform to deploy the services.
 
 ```bash
 # Navigate into the terraform/ directory
 cd terraform
-# Create terraform.tfvars file
-cat << EOF > terraform.tfvars
-project_id = "${PROJECT_ID}"
-region = "${REGION}"
-animator_container_image = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/animator:latest"
-agent_container_image = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/agent:latest"
-frontend_container_image = "${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/frontend:latest"
-EOF
 # Initialize terraform
 terraform init
 # Deploy cloud run services
-terraform apply
+terraform apply \                
+    -var "project_id=${PROJECT_ID}" \
+    -var "region=${REGION}" \
+    -var "animator_container_image=${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/animator:latest" \
+    -var "agent_container_image=${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/agent:latest" \
+    -var "frontend_container_image=${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/frontend:latest"
 ```
 
 ### Cleanup
