@@ -59,6 +59,7 @@ services:
       - PORT=8080
       # Runtime environment variables
       - LANGGRAPH_ENDPOINT=http://agent:8080
+      - NODE_ENV=development
       - NEXT_PUBLIC_API_BASE_URL=/api
       - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}
       # Use the container path for service account key

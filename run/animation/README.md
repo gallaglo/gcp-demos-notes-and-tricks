@@ -127,7 +127,7 @@ gcloud builds submit ./frontend \
     --tag ${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/frontend:latest
 
 # Build agent image
-gcloud builds submit ./agent-service \
+gcloud builds submit ./agent \
     --tag ${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/agent:latest
 
 # Build animator image

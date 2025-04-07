@@ -1,10 +1,8 @@
 FROM node:18-alpine AS builder
 WORKDIR /app
 
-# Set default build-time environment variables
-# This ensures the build doesn't fail if the variable isn't passed
-ARG LANGGRAPH_ENDPOINT=http://agent:8080
-ENV LANGGRAPH_ENDPOINT=${LANGGRAPH_ENDPOINT}
+# Build-time variables (used only during build)
+ARG NEXT_PUBLIC_BUILD_ENV=production
 
 # First copy only package files to leverage cache for npm ci
 COPY package*.json ./
@@ -43,10 +41,12 @@ RUN chown -R nextjs:nodejs /app
 # Switch to non-root user
 USER nextjs
 
-# Set environment variables
+# Set environment variables - these will be RUNTIME variables
+# Default value that can be overridden at runtime
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
-    PORT=8080
+    PORT=8080 \
+    LANGGRAPH_ENDPOINT=""
 
 EXPOSE 8080
 

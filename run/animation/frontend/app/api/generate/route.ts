@@ -29,8 +29,21 @@ async function getIdToken(audience: string) {
 
 // Get the endpoint from environment at runtime
 const getBackendURL = () => {
-  // Use proxy for client-side, direct URL for server-side
-  return process.env.LANGGRAPH_ENDPOINT || 'http://agent:8080';
+  // If explicitly set in environment, use that
+  if (process.env.LANGGRAPH_ENDPOINT && process.env.LANGGRAPH_ENDPOINT !== "") {
+    console.log(`Using configured LANGGRAPH_ENDPOINT: ${process.env.LANGGRAPH_ENDPOINT}`);
+    return process.env.LANGGRAPH_ENDPOINT;
+  }
+  
+  // Development with direct API calls
+  if (process.env.NODE_ENV === 'development') {
+    console.log('Using development endpoint: http://agent:8080');
+    return 'http://agent:8080';
+  }
+  
+  // Fallback to relative path for API route in production
+  console.log('Using relative API path: /api/animation');
+  return '/api/animation';
 };
 
 // Streaming implementation for real-time updates
