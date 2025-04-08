@@ -198,6 +198,9 @@ class BlenderScriptGenerator:
                 logger.error("Generated script is empty")
                 raise ValueError("Empty script generated")
             
+            # Apply common fixes to the script
+            script = self._fix_common_script_issues(script)
+            
             # Validate script has required components
             self._validate_script_requirements(script)
             
@@ -208,6 +211,66 @@ class BlenderScriptGenerator:
         except Exception as e:
             logger.error(f"Error generating script: {str(e)}")
             raise ValueError(f"Failed to generate script: {str(e)}")
+
+    def _fix_common_script_issues(self, script: str) -> str:
+        """
+        Fix common issues in generated Blender scripts.
+        
+        Args:
+            script (str): The original Blender script
+        
+        Returns:
+            str: The corrected script
+        """
+        # Fix camera creation if it has the wrong number of arguments
+        script = script.replace(
+            'camera_object = bpy.data.objects.new("Camera", "Camera", camera_data)',
+            'camera_object = bpy.data.objects.new("Camera", camera_data)'
+        )
+        
+        # Fix similar issues with other object types
+        script = script.replace(
+            'light_object = bpy.data.objects.new("Light", "Light", light_data)',
+            'light_object = bpy.data.objects.new("Light", light_data)'
+        )
+        
+        # Fix any issues with sun object creation
+        script = script.replace(
+            'sun_object = bpy.data.objects.new("Sun", "Sun", sun_data)',
+            'sun_object = bpy.data.objects.new("Sun", sun_data)'
+        )
+        
+        # Fix any issues with key_light object creation
+        script = script.replace(
+            'key_light_object = bpy.data.objects.new("Key Light", "Key Light", key_light_data)',
+            'key_light_object = bpy.data.objects.new("Key Light", key_light_data)'
+        )
+        
+        # Fix any issues with fill_light object creation
+        script = script.replace(
+            'fill_light_object = bpy.data.objects.new("Fill Light", "Fill Light", fill_light_data)',
+            'fill_light_object = bpy.data.objects.new("Fill Light", fill_light_data)'
+        )
+        
+        # Fix common rotation issues
+        script = script.replace(
+            'obj.rotation = (', 
+            'obj.rotation_euler = ('
+        )
+        
+        # Fix common scene issues
+        script = script.replace(
+            'bpy.context.scene.objects.link(',
+            'bpy.context.scene.collection.objects.link('
+        )
+        
+        # Replace any instances where three arguments are passed to bpy.data.objects.new
+        import re
+        pattern = r'bpy\.data\.objects\.new\([\'"]([^\'"]+)[\'"],\s*[\'"]([^\'"]+)[\'"],\s*([^)]+)\)'
+        replacement = r'bpy.data.objects.new("\1", \3)'
+        script = re.sub(pattern, replacement, script)
+        
+        return script
 
     def _modify_script_for_output_path(self, script: str) -> str:
         """
@@ -284,6 +347,15 @@ class BlenderScriptGenerator:
         for component in required_components:
             if component not in script:
                 raise ValueError(f'Generated script missing required component: {component}')
+                
+        # Check for incorrect camera creation syntax (common issue)
+        if 'bpy.data.objects.new(' in script and 'camera_data' in script:
+            # Pattern match to see if there are more than two arguments in the call
+            import re
+            pattern = r'bpy\.data\.objects\.new\([\'"][^\'"]+[\'"],\s*[\'"][^\'"]+[\'"],\s*[^)]+\)'
+            matches = re.findall(pattern, script)
+            if matches:
+                raise ValueError('Incorrect object creation syntax: too many arguments in bpy.data.objects.new()')
 
 # Create script generator instance
 script_generator = BlenderScriptGenerator()
@@ -342,6 +414,10 @@ def render_animation(state: AnimationState) -> AnimationState:
             "script": state["blender_script"]
         }
         
+        # Log the first 200 characters of the script for debugging (avoid logging huge scripts)
+        script_excerpt = state["blender_script"][:200] + "..." if len(state["blender_script"]) > 200 else state["blender_script"]
+        logger.info(f"Sending script to Blender service (excerpt): {script_excerpt}")
+        
         # Make the request to your Blender service
         response = requests.post(
             f"{BLENDER_SERVICE_URL}/render",
@@ -371,7 +447,7 @@ def render_animation(state: AnimationState) -> AnimationState:
         result = response.json()
         
         # Check for error in response
-        if "error" in result:
+        if "error" in result and result["error"]:
             # Add error message to history
             updated_history = state["history"] + [
                 {"role": "ai", "content": f"I encountered an error while rendering the animation: {result['error']}"}

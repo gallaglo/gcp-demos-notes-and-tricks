@@ -83,6 +83,13 @@ class BlenderScriptValidator:
                         'error': f'Script missing required component: {component}'
                     }
             
+            # Check for incorrect camera creation syntax (common issue)
+            if 'bpy.data.objects.new("Camera", "Camera", camera_data)' in script:
+                return {
+                    'valid': False,
+                    'error': 'Incorrect camera creation syntax: too many arguments in bpy.data.objects.new()'
+                }
+            
             return {'valid': True}
         except Exception as e:
             return {
@@ -279,6 +286,57 @@ def render():
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/validate', methods=['POST'])
+def validate_script():
+    """Endpoint for validating a Blender script without executing it."""
+    if not request.content_type or 'application/json' not in request.content_type:
+        return jsonify({'error': 'Request must be JSON'}), 400
+    
+    try:
+        data = request.get_json()
+    except Exception:
+        return jsonify({'error': 'Invalid JSON format'}), 400
+    
+    # Get script from request
+    script = data.get('script')
+    
+    if not script:
+        return jsonify({'error': 'No script provided'}), 400
+    
+    try:
+        # Validate the script
+        validator = BlenderScriptValidator()
+        validation_result = validator.validate_script(script)
+        
+        if not validation_result['valid']:
+            return jsonify({
+                'valid': False,
+                'error': validation_result['error']
+            }), 400
+            
+        # Basic syntax check - look for potential issues
+        issues = []
+        
+        # Check for potential issues with camera creation
+        if 'bpy.data.objects.new(' in script:
+            camera_lines = [line for line in script.split('\n') 
+                           if 'bpy.data.objects.new(' in line and 'camera' in line.lower()]
+            for line in camera_lines:
+                if line.count(',') > 1:  # More than one comma indicates potential issue
+                    issues.append(f"Potential issue with camera creation: {line.strip()}")
+        
+        return jsonify({
+            'valid': True,
+            'potential_issues': issues
+        })
+    
+    except Exception as e:
+        logger.error(f"Error validating script: {str(e)}")
+        return jsonify({
+            'valid': False,
+            'error': str(e)
+        }), 500
 
 # Keep the original /generate endpoint for backward compatibility
 @app.route('/generate', methods=['POST'])

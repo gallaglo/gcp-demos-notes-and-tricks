@@ -51,19 +51,18 @@ export default function Home() {
 
   // Handle sending a new message
   const handleSendMessage = async (message: string) => {
-    // The generateAnimation function from useAnimationStream will handle adding
-    // the message to the chat dialog and processing it
     generateAnimation(message);
   };
 
   // Handle status changes from viewer component
-  const handleStatusChange = () => {
-    // Status is already handled by useAnimationStream
+  const handleStatusChange = (newStatus: string) => {
+    // Status is handled by useAnimationStream
+    console.log("Animation status:", newStatus);
   };
   
   // Handle errors from viewer component
-  const handleError = () => {
-    // Errors are already handled by useAnimationStream
+  const handleError = (error: string) => {
+    console.error("Animation viewer error:", error);
   };
 
   // Handle example prompt selection
@@ -96,6 +95,7 @@ export default function Home() {
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+            
             <Button 
               onClick={() => clearConversation()} 
               variant="outline" 
