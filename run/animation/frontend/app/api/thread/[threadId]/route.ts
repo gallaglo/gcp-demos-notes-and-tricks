@@ -22,7 +22,13 @@ const activeThreads: Record<string, ThreadData> = {};
 
 // Safe handling of environment variables for build time
 const getEndpoint = () => {
-  return process.env.LANGGRAPH_ENDPOINT || '';
+  // Check if we have a configured endpoint
+  if (process.env.LANGGRAPH_ENDPOINT && process.env.LANGGRAPH_ENDPOINT !== '') {
+    return process.env.LANGGRAPH_ENDPOINT;
+  }
+  
+  // No endpoint configured
+  return '';
 };
 
 async function getIdToken(audience: string) {

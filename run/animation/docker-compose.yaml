@@ -1,7 +1,6 @@
 networks:
   app-network:
     name: app-network
-
 services:
   # Backend API service (animator)
   animator:
@@ -22,7 +21,6 @@ services:
       - ./animator-sa-key.json:/app/animator-sa-key.json:ro
     networks:
       - app-network
-
   # Agent service (LangGraph-based)
   agent:
     build:
@@ -44,7 +42,6 @@ services:
       - animator
     networks:
       - app-network
-
   # Frontend web app
   frontend:
     build:
@@ -52,12 +49,11 @@ services:
       dockerfile: Dockerfile
       args:
         # Set the build-time argument for the Next.js build process
-        - LANGGRAPH_ENDPOINT=http://agent:8080
+        - NEXT_PUBLIC_BUILD_ENV=development
     ports:
       - "3000:8080" # Map container port 8080 to host port 3000
     environment:
       - PORT=8080
-      # Runtime environment variables
       - LANGGRAPH_ENDPOINT=http://agent:8080
       - NODE_ENV=development
       - NEXT_PUBLIC_API_BASE_URL=/api

@@ -35,13 +35,7 @@ const getBackendURL = () => {
     return process.env.LANGGRAPH_ENDPOINT;
   }
   
-  // Development with direct API calls
-  if (process.env.NODE_ENV === 'development') {
-    console.log('Using development endpoint: http://agent:8080');
-    return 'http://agent:8080';
-  }
-  
-  // Fallback to relative path for API route in production
+  // Fallback to relative path for API route
   console.log('Using relative API path: /api/animation');
   return '/api/animation';
 };

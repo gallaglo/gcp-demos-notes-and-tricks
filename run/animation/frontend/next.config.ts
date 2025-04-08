@@ -17,17 +17,26 @@ const nextConfig: NextConfig = {
   // Add API rewrites to proxy backend requests
   async rewrites() {
     // Make sure we have a valid endpoint with a fallback
-    const endpoint = process.env.LANGGRAPH_ENDPOINT || 'http://agent:8080';
-
-    // Add log to see what endpoint is being used
-    console.log("Next.js API rewrite using endpoint:", endpoint);
+    const endpoint = process.env.LANGGRAPH_ENDPOINT || '';
     
-    return [
-      {
-        source: '/api/:path*',
-        destination: `${endpoint}/:path*`, // Proxy to the agent service
-      },
-    ];
+    // This environment variable is populated by Cloud Run deployment
+    if (endpoint && endpoint !== '') {
+      console.log("Next.js API rewrite using endpoint:", endpoint);
+      
+      return [
+        {
+          source: '/api/:path*',
+          destination: `${endpoint}/:path*`, // Proxy to the agent service
+        },
+        {
+          source: '/api/thread/:path*',
+          destination: `${endpoint}/thread/:path*`, // Proxy thread API
+        },
+      ];
+    }
+    
+    // Local development fallback - development server handles API routes directly
+    return [];
   },
   // Original webpack configuration
   webpack: (config: Configuration) => {
