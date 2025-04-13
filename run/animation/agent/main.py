@@ -48,13 +48,6 @@ class AnimationRequest(BaseModel):
     prompt: str
     thread_id: Optional[str] = None
 
-class AnimationResponse(BaseModel):
-    signed_url: str
-    generation_status: str
-    error: str = ""
-    scene_id: Optional[str] = None
-    scene_state: Optional[Dict[str, Any]] = None
-
 class ThreadRequest(BaseModel):
     messages: List[Dict[str, Any]]
     checkpoint: Optional[str] = None
@@ -65,42 +58,6 @@ class SceneEditRequest(BaseModel):
     scene_state: Dict[str, Any]
     thread_id: Optional[str] = None
     conversation_history: Optional[List[Dict[str, Any]]] = None
-
-@app.post("/generate")
-async def generate_animation(request: AnimationRequest):
-    """Endpoint to generate an animation from a prompt."""
-    logger.info(f"Received animation request with prompt: {request.prompt}")
-    try:
-        # Get thread ID from request if available
-        thread_id = request.thread_id if request.thread_id else None
-        
-        result = run_animation_generation(request.prompt, thread_id=thread_id)
-        logger.info(f"Animation generation completed with result: {result}")
-        
-        # Get scene state information if available
-        scene_info = {}
-        if result.get("thread_id") and result.get("scene_state"):
-            scene_info = {
-                "scene_id": result.get("scene_state", {}).get("id", ""),
-                "scene_state": result.get("scene_state", {})
-            }
-        
-        # Ensure consistent response structure
-        return {
-            "signed_url": result.get("signed_url", ""),
-            "generation_status": result.get("generation_status", ""),
-            "error": result.get("error", ""),
-            "history": result.get("history", []),
-            "is_modification": result.get("is_modification", False),
-            **scene_info  # Include scene information if available
-        }
-    except Exception as e:
-        logger.error(f"Error in animation generation: {str(e)}")
-        return {
-            "signed_url": "",
-            "generation_status": "error",
-            "error": str(e)
-        }
 
 @app.post("/analyze-edit")
 async def analyze_edit_request(request: SceneEditRequest):

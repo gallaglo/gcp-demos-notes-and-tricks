@@ -290,6 +290,75 @@ OUTPUT FORMAT:
 ONLY return the JSON object, nothing else. Ensure all values are valid numbers and the JSON is properly formatted.
 """
 
+# New prompts for scene modification analysis
+
+# System prompt for scene modification analysis
+SCENE_MODIFICATION_SYSTEM_PROMPT = """You are an assistant that specializes in understanding requests to modify 3D scenes.
+Your task is to analyze the user's request and convert it into specific modifications for objects in the scene.
+You will receive:
+1. A description of the current scene
+2. A list of objects in the scene with their properties
+3. A user request for modifications
+
+You must identify which objects to modify, add, or remove, and what specific changes to make to their properties.
+"""
+
+# Human message template for scene modification analysis
+SCENE_MODIFICATION_HUMAN_TEMPLATE = """
+Current scene description: {scene_description}
+
+The scene contains these objects:
+{object_descriptions}
+
+The user wants to modify the scene with this request: "{prompt}"
+
+Based on this request, I need you to:
+1. Identify which existing objects should be modified and how
+2. Identify if any new objects should be added
+3. Identify if any existing objects should be removed
+
+Provide your analysis as a valid JSON object in exactly this format:
+```json
+{{
+  "object_changes": {{
+    "object_id_1": {{
+      "position": [x, y, z],
+      "rotation": [x, y, z],
+      "scale": [x, y, z],
+      "material": {{
+        "color": [r, g, b]
+      }}
+    }}
+  }},
+  "add_objects": [
+    {{
+      "type": "sphere", // or "cube", "cylinder", "plane"
+      "name": "New Object Name",
+      "position": [x, y, z],
+      "rotation": [0, 0, 0],
+      "scale": [1, 1, 1],
+      "material": {{
+        "color": [r, g, b]
+      }},
+      "properties": {{ // type-specific properties
+        "radius": 1.0 // for spheres
+        // or "size": 2.0 for cubes/planes
+        // or "radius": 1.0, "depth": 2.0 for cylinders
+      }}
+    }}
+  ],
+  "remove_object_ids": ["object_id_2"]
+}}
+```
+
+Only include the exact JSON response with no additional text.
+"""
+
+SCENE_MODIFICATION_PROMPT = PromptTemplate(
+    template=SCENE_MODIFICATION_HUMAN_TEMPLATE,
+    input_variables=["scene_description", "object_descriptions", "prompt"]
+)
+
 # Function to format the MCP edit prompt
 def format_mcp_edit_prompt(scene_state, conversation_history, user_prompt):
     """Format the MCP edit prompt with scene state and conversation history"""

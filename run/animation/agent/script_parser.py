@@ -1,4 +1,3 @@
-# script_parser.py
 import re
 import json
 import uuid

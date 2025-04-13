@@ -1,3 +1,4 @@
+# animation_graph.py
 import os
 import json
 import requests
@@ -13,6 +14,9 @@ import logging
 from functools import lru_cache
 from dotenv import load_dotenv
 from scene_manager import SceneManager
+
+# Load environment variables from .env file if present
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -235,7 +239,7 @@ def analyze_modification_request(state: AnimationState) -> AnimationState:
                 "generation_status": "error"
             }
         
-        llm = get_llm()
+        llm = get_llm("gemini-2.0-pro-001")  # Use a more capable model for complex parsing
         
         # Prepare the scene description
         scene_desc = json.dumps(state["scene_state"], indent=2)
@@ -498,3 +502,310 @@ class BlenderScriptGenerator:
             matches = re.findall(pattern, script)
             if matches:
                 raise ValueError('Incorrect object creation syntax: too many arguments in bpy.data.objects.new()')
+
+# Create script generator instance
+script_generator = BlenderScriptGenerator()
+
+def generate_blender_script(state: AnimationState) -> AnimationState:
+    """Generate Blender script using the BlenderScriptGenerator tool."""
+    try:
+        # This function handles both new script generation and modification
+        if state.get("is_modification", False) and state.get("scene_state"):
+            # This is a modification to an existing scene
+            logger.info(f"Generating script based on scene modification: {state['prompt']}")
+            
+            # Get the thread ID and object changes
+            thread_id = state.get("thread_id", "")
+            object_changes = state.get("object_changes", {})
+            
+            # Generate a script with the specified modifications
+            script = scene_manager.generate_script_with_modifications(
+                thread_id=thread_id,
+                prompt=state["prompt"],
+                object_changes=object_changes.get("object_changes", {}),
+                add_objects=object_changes.get("add_objects", []),
+                remove_object_ids=object_changes.get("remove_object_ids", [])
+            )
+            
+            # If we couldn't generate a modified script, fall back to creating a new one
+            if not script:
+                logger.warning("Failed to generate modification script, falling back to new generation")
+                script = script_generator.generate(state["prompt"], state["history"])
+        else:
+            # Generate a completely new script
+            logger.info(f"Generating new script from prompt: {state['prompt']}")
+            script = script_generator.generate(state["prompt"], state["history"])
+        
+        # Add AI response about generating the animation to history
+        action_type = "modifying" if state.get("is_modification", False) else "generating"
+        updated_history = state["history"] + [
+            {"role": "ai", "content": f"I'm {action_type} a 3D animation based on your request: '{state['prompt']}'. This might take a moment..."}
+        ]
+        
+        # Update state
+        return {
+            **state,
+            "blender_script": script,
+            "generation_status": "script_generated",
+            "history": updated_history
+        }
+    except Exception as e:
+        logger.error(f"Script generation error: {str(e)}")
+        
+        # Add error message to history
+        updated_history = state["history"] + [
+            {"role": "ai", "content": f"I encountered an error while trying to generate the animation: {str(e)}"}
+        ]
+        
+        return {
+            **state,
+            "error": f"Script generation error: {str(e)}",
+            "generation_status": "error",
+            "history": updated_history
+        }
+
+def render_animation(state: AnimationState) -> AnimationState:
+    """Send the script to Blender service for rendering."""
+    if state.get("error"):
+        return state
+    
+    try:
+        # Get ID token for Cloud Run authentication
+        token = get_id_token(BLENDER_SERVICE_URL)
+        
+        # Prepare request to Blender service
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+        
+        # The script is passed to your existing Cloud Run service
+        payload = {
+            "prompt": state["prompt"],
+            "script": state["blender_script"],
+            "thread_id": state.get("thread_id", "")  # Include the thread ID
+        }
+        
+        # Log the first 200 characters of the script for debugging (avoid logging huge scripts)
+        script_excerpt = state["blender_script"][:200] + "..." if len(state["blender_script"]) > 200 else state["blender_script"]
+        logger.info(f"Sending script to Blender service (excerpt): {script_excerpt}")
+        
+        # Make the request to your Blender service
+        response = requests.post(
+            f"{BLENDER_SERVICE_URL}/render",
+            headers=headers,
+            json=payload,
+            timeout=300  # 5 minute timeout for rendering
+        )
+        
+        # Check for success
+        if response.status_code != 200:
+            error_message = f"Blender service error: {response.status_code} - {response.text}"
+            logger.error(error_message)
+            
+            # Add error message to history
+            updated_history = state["history"] + [
+                {"role": "ai", "content": f"I encountered an error while rendering the animation: {error_message}"}
+            ]
+            
+            return {
+                **state,
+                "error": error_message,
+                "generation_status": "error",
+                "history": updated_history
+            }
+        
+        # Parse response
+        result = response.json()
+        
+        # Check for error in response
+        if "error" in result and result["error"]:
+            # Add error message to history
+            updated_history = state["history"] + [
+                {"role": "ai", "content": f"I encountered an error while rendering the animation: {result['error']}"}
+            ]
+            
+            return {
+                **state,
+                "error": result["error"],
+                "generation_status": "error",
+                "history": updated_history
+            }
+        
+        # Success case - get signed URL
+        # Extract scene state information if available
+        scene_id = result.get("scene_id", "")
+        
+        # Store the scene state and update with the signed URL
+        if scene_id and state.get("thread_id") and result.get("signed_url"):
+            # Extract scene state from script if it was parsed by the blender service
+            if result.get("scene_state"):
+                scene_state = result["scene_state"]
+                # Store in our scene manager
+                scene_manager.extract_scene_from_script(
+                    state["blender_script"], 
+                    state["prompt"],
+                    state["thread_id"]
+                )
+            
+            # Update the scene with the signed URL
+            scene_manager.update_scene_with_signed_url(scene_id, result["signed_url"])
+        
+        # Customize message based on if this was a modification or new animation
+        message = "Your animation is ready! You can see it in the viewer."
+        if state.get("is_modification", False):
+            message += " I've applied the changes you requested. How does it look now?"
+        else:
+            message += " Is there anything you'd like me to change about it?"
+        
+        # Add success message to history
+        updated_history = state["history"] + [
+            {"role": "ai", "content": message}
+        ]
+        
+        # Get the current scene state for the thread
+        current_scene = None
+        if state.get("thread_id"):
+            current_scene = scene_manager.get_current_scene_for_thread(state["thread_id"])
+        
+        return {
+            **state,
+            "signed_url": result["signed_url"],
+            "generation_status": "completed",
+            "history": updated_history,
+            "scene_state": current_scene
+        }
+    except Exception as e:
+        logger.error(f"Render animation error: {str(e)}")
+        
+        # Add error message to history
+        updated_history = state["history"] + [
+            {"role": "ai", "content": f"I encountered an error while rendering the animation: {str(e)}"}
+        ]
+        
+        return {
+            **state,
+            "error": f"Render animation error: {str(e)}",
+            "generation_status": "error",
+            "history": updated_history
+        }
+
+def router(state: AnimationState) -> str:
+    """Route to the next node based on state."""
+    if state.get("error"):
+        return "end"
+    if state.get("generation_status") == "conversation_only":
+        return "end"
+    if state.get("generation_status") == "analyzing":
+        return "generate_script"
+    if state.get("generation_status") == "analyzing_modification":
+        return "analyze_modification"
+    if state.get("generation_status") == "modification_analyzed":
+        return "generate_script"
+    if state.get("generation_status") == "script_generated":
+        return "render_animation"
+    if state.get("generation_status") == "completed":
+        return "end"
+    # Default case
+    return "analyze_prompt"
+
+def create_animation_graph():
+    """Create the LangGraph for animation generation."""
+    # Define the workflow graph
+    workflow = StateGraph(AnimationState)
+    
+    # Add nodes
+    workflow.add_node("analyze_prompt", analyze_prompt)
+    workflow.add_node("analyze_modification", analyze_modification_request)
+    workflow.add_node("generate_script", generate_blender_script)
+    workflow.add_node("render_animation", render_animation)
+    
+    # Define edges with the router function
+    workflow.add_conditional_edges(
+        "analyze_prompt",
+        router,
+        {
+            "generate_script": "generate_script",
+            "analyze_modification": "analyze_modification",
+            "end": END
+        }
+    )
+    
+    workflow.add_conditional_edges(
+        "analyze_modification",
+        router,
+        {
+            "generate_script": "generate_script",
+            "end": END
+        }
+    )
+    
+    workflow.add_conditional_edges(
+        "generate_script",
+        router,
+        {
+            "render_animation": "render_animation",
+            "end": END
+        }
+    )
+    
+    workflow.add_conditional_edges(
+        "render_animation",
+        router,
+        {
+            "end": END
+        }
+    )
+    
+    # Set the entry point
+    workflow.set_entry_point("analyze_prompt")
+    
+    return workflow.compile()
+
+def run_animation_generation(prompt: str, history: List[Message] = None, thread_id: str = None) -> Dict[str, Any]:
+    """Run the animation generation workflow with the given prompt and history."""
+    # Initialize history if not provided
+    if history is None:
+        history = []
+    
+    # Always generate a thread ID if not provided
+    if not thread_id:
+        thread_id = str(uuid.uuid4())
+        logger.info(f"Generated new thread ID: {thread_id}")
+    else:
+        logger.info(f"Using existing thread ID: {thread_id}")
+    
+    # Add current prompt to history
+    updated_history = history + [{"role": "human", "content": prompt}]
+    
+    # Initialize the state
+    initial_state = AnimationState(
+        prompt="",  # Will be set by analyze_prompt if needed
+        current_prompt=prompt,
+        blender_script="",
+        generation_status="started",
+        signed_url="",
+        error="",
+        history=updated_history,
+        thread_id=thread_id,  # Always include a valid thread ID
+        scene_state={},  # Will be populated if needed
+        is_modification=False,  # Default to not being a modification
+        object_changes={}  # Will be populated during modification analysis
+    )
+    
+    # Create and run the graph
+    graph = create_animation_graph()
+    result = graph.invoke(initial_state)
+    
+    # Always include the thread_id in the result
+    if thread_id and "thread_id" not in result:
+        result["thread_id"] = thread_id
+    
+    # Return the final state
+    return result
+
+if __name__ == "__main__":
+    # Example for testing
+    test_prompt = "planets orbiting sun in solar system"
+    result = run_animation_generation(test_prompt)
+    print(f"Result: {json.dumps(result, indent=2)}")
