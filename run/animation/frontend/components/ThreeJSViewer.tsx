@@ -7,6 +7,7 @@ import { GLTFLoader, GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { Button } from "@/components/ui/button";
 import { Maximize2, RotateCcw, PlayIcon, PauseIcon } from "lucide-react";
 
+// Clearly define the prop types for the component
 interface ThreeJSViewerProps {
   signedUrl: string | null;
   initialIsPlaying?: boolean;
@@ -15,13 +16,14 @@ interface ThreeJSViewerProps {
   onStatusChange?: (status: string) => void;
 }
 
-export default function ThreeJSViewer({ 
+// Explicitly define that this is a React component function
+const ThreeJSViewer: React.FC<ThreeJSViewerProps> = ({ 
   signedUrl, 
   initialIsPlaying = true,
   onPlayingChange,
   onError,
   onStatusChange
-}: ThreeJSViewerProps) {
+}) => {
   // State management
   const [isAnimationPlaying, setIsAnimationPlaying] = useState(initialIsPlaying);
   const [isMounted, setIsMounted] = useState(false);
@@ -518,4 +520,6 @@ export default function ThreeJSViewer({
       </div>
     </div>
   );
-}
+};
+
+export default ThreeJSViewer;

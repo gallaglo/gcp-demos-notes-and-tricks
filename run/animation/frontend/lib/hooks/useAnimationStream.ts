@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { SceneState } from '@/lib/types/scene';
+import { AgentClient, Message as AgentMessage } from '@/lib/agentClient';
 
 export type MessageType = {
   id: string;
@@ -59,6 +60,17 @@ export function useAnimationStream() {
   // Use a Set to track messages we've already added locally
   const localMessageContentsRef = useRef<Set<string>>(new Set());
 
+  // Agent client for API communication
+  const agentClientRef = useRef<AgentClient | null>(null);
+
+  // Initialize the agent client
+  useEffect(() => {
+    // Create the agent client only once
+    if (!agentClientRef.current) {
+      agentClientRef.current = new AgentClient();
+    }
+  }, []);
+
   // Get the base URL dynamically in the browser
   const getBaseUrl = useCallback(() => {
     if (typeof window !== 'undefined') {
@@ -68,52 +80,51 @@ export function useAnimationStream() {
   }, []);
   
   // Function to fetch thread data
-  const fetchThreadData = useCallback(async (threadId: string) => {
+  const fetchThreadData = useCallback(async (currentThreadId: string) => {
     try {
-      const response = await fetch(`${getBaseUrl()}/api/thread/${threadId}`);
+      if (!agentClientRef.current) return;
       
-      if (!response.ok) {
-        // If thread not found, clear local storage
-        if (response.status === 404) {
-          localStorage.removeItem('animationThreadId');
-          setThreadId(null);
-        }
-        return;
-      }
-      
-      const data = await response.json();
+      const threadData = await agentClientRef.current.getThread(currentThreadId);
       
       // Update state
-      if (data.messages) {
-        setMessages(data.messages);
+      if (threadData.messages) {
+        // Convert AgentMessage to MessageType
+        const convertedMessages = threadData.messages.map((msg: AgentMessage): MessageType => ({
+          id: msg.id,
+          type: msg.type,
+          content: msg.content,
+          metadata: msg.metadata
+        }));
+        
+        setMessages(convertedMessages);
         
         // Update our local message tracking set
-        data.messages.forEach((msg: MessageType) => {
+        convertedMessages.forEach((msg: MessageType) => {
           localMessageContentsRef.current.add(msg.content);
         });
       }
       
-      if (data.signedUrl) {
-        setSignedUrl(data.signedUrl);
+      if (threadData.signedUrl) {
+        setSignedUrl(threadData.signedUrl);
       }
       
-      if (data.status) {
-        setStatus(data.status);
+      if (threadData.status) {
+        setStatus(threadData.status);
       }
       
       // Update scene state if available
-      if (data.sceneState) {
-        setSceneState(data.sceneState);
+      if (threadData.sceneState) {
+        setSceneState(threadData.sceneState);
       }
       
       // Update scene history if available
-      if (data.sceneHistory) {
-        setSceneHistory(data.sceneHistory);
+      if (threadData.sceneHistory) {
+        setSceneHistory(threadData.sceneHistory);
       }
     } catch (error) {
       console.error("Error fetching thread data:", error);
     }
-  }, [getBaseUrl]);
+  }, []);
   
   // Effect to load thread from localStorage on first mount
   useEffect(() => {
@@ -451,57 +462,42 @@ export function useAnimationStream() {
   
   // Function to fetch scene history for the current thread
   const fetchSceneHistory = useCallback(async () => {
-    if (!threadId) return;
+    if (!threadId || !agentClientRef.current) return;
     
     try {
-      const response = await fetch(`${getBaseUrl()}/api/scene-history/${threadId}`);
+      const response = await agentClientRef.current.getSceneHistory(threadId);
       
-      if (!response.ok) {
-        console.error("Failed to fetch scene history:", response.statusText);
-        return;
-      }
-      
-      const data = await response.json();
-      if (data.history && Array.isArray(data.history)) {
-        setSceneHistory(data.history);
+      if (response.history && Array.isArray(response.history)) {
+        setSceneHistory(response.history);
       }
     } catch (error) {
       console.error("Error fetching scene history:", error);
     }
-  }, [threadId, getBaseUrl]);
+  }, [threadId]);
   
-  // Function to analyze edits using MCP
+  // Function to analyze edits using the AgentClient
   const analyzeSceneEdit = useCallback(async (prompt: string) => {
-    if (!sceneState) return null;
+    if (!sceneState || !agentClientRef.current) return null;
     
     try {
-      const response = await fetch(`${getBaseUrl()}/api/analyze-edit`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          prompt,
-          scene_state: sceneState,
-          thread_id: threadId,
-          conversation_history: messages.map(msg => ({
-            role: msg.type,
-            content: msg.content
-          }))
-        }),
-      });
+      const conversationHistory = messages.map(msg => ({
+        role: msg.type,
+        content: msg.content
+      }));
       
-      if (!response.ok) {
-        throw new Error(`Failed to analyze edit: ${response.statusText}`);
-      }
+      const response = await agentClientRef.current.analyzeSceneEdit(
+        prompt,
+        sceneState,
+        threadId || undefined,
+        conversationHistory
+      );
       
-      const data = await response.json();
-      return data.edit_instructions;
+      return response.edit_instructions;
     } catch (error) {
       console.error("Error analyzing scene edit:", error);
       return null;
     }
-  }, [sceneState, threadId, messages, getBaseUrl]);
+  }, [sceneState, threadId, messages]);
   
   // Effect to fetch scene history when threadId changes
   useEffect(() => {
