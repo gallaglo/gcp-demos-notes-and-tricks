@@ -96,8 +96,18 @@ export async function POST(request: NextRequest) {
         thread.messages.push(humanMessage);
       }
       
-      // Send initial state
-      await writer.write(encoder.encode(formatEvent('state', thread)));
+      // Send initial state (filtered to exclude the human message we just added)
+      const filteredMessages = thread.messages.filter(msg => 
+        // Don't include the last human message if it matches our prompt
+        !(msg.type === 'human' && msg.content === prompt)
+      );
+
+      await writer.write(encoder.encode(
+        formatEvent('state', { 
+          ...thread, 
+          messages: filteredMessages 
+        })
+      ));
       
       // Update status - analyzing
       thread.status = 'generating_script';
