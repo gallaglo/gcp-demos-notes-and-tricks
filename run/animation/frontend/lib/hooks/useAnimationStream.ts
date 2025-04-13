@@ -2,22 +2,30 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import { SceneState } from '@/lib/types/scene';
 
 export type MessageType = {
   id: string;
   type: 'human' | 'ai';
   content: string;
+  metadata?: {
+    sceneId?: string;
+    modifiedObjects?: string[];
+    action?: 'create' | 'modify' | 'delete';
+  };
 };
 
 export type AnimationState = {
   messages: MessageType[];
   signedUrl?: string;
   status?: string;
+  sceneState?: SceneState;
+  sceneHistory?: SceneState[];
 };
 
 // Define custom event types
 type AnimationCustomEvent = {
-  type: 'data' | 'status' | 'error' | 'message' | 'state' | 'end';
+  type: 'data' | 'status' | 'error' | 'message' | 'state' | 'end' | 'scene_state' | 'scene_history';
   data?: {
     signed_url?: string;
     status?: string;
@@ -25,6 +33,9 @@ type AnimationCustomEvent = {
     id?: string;
     type?: string;
     messages?: MessageType[];
+    scene_id?: string;
+    scene_state?: SceneState;
+    scene_history?: SceneState[];
   };
   error?: string;
 };
@@ -37,6 +48,10 @@ export function useAnimationStream() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isError, setIsError] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
+  
+  // Scene state management
+  const [sceneState, setSceneState] = useState<SceneState | undefined>(undefined);
+  const [sceneHistory, setSceneHistory] = useState<SceneState[]>([]);
   
   // Use a ref to track the current prompt being processed to avoid duplicates
   const currentPromptRef = useRef<string | null>(null);
@@ -84,6 +99,16 @@ export function useAnimationStream() {
       
       if (data.status) {
         setStatus(data.status);
+      }
+      
+      // Update scene state if available
+      if (data.sceneState) {
+        setSceneState(data.sceneState);
+      }
+      
+      // Update scene history if available
+      if (data.sceneHistory) {
+        setSceneHistory(data.sceneHistory);
       }
     } catch (error) {
       console.error("Error fetching thread data:", error);
@@ -165,7 +190,10 @@ export function useAnimationStream() {
         const messageData: MessageType = {
           id,
           type: messageType,
-          content: messageContent
+          content: messageContent,
+          metadata: {
+            sceneId: data.scene_id
+          }
         };
         
         // Add to our local tracking set
@@ -191,6 +219,27 @@ export function useAnimationStream() {
         if (url) {
           setSignedUrl(url);
         }
+        
+        // Check for scene data
+        if (data.scene_id) {
+          console.log("Received scene_id:", data.scene_id);
+        }
+        break;
+      }
+        
+      case 'scene_state': {
+        const data = event.data;
+        if (!data || !data.scene_state) break;
+        
+        setSceneState(data.scene_state as SceneState);
+        break;
+      }
+        
+      case 'scene_history': {
+        const data = event.data;
+        if (!data || !data.scene_history) break;
+        
+        setSceneHistory(data.scene_history as SceneState[]);
         break;
       }
         
@@ -394,7 +443,72 @@ export function useAnimationStream() {
     currentPromptRef.current = null;
     localMessageContentsRef.current.clear();
     localStorage.removeItem('animationThreadId');
+    
+    // Clear scene state
+    setSceneState(undefined);
+    setSceneHistory([]);
   }, []);
+  
+  // Function to fetch scene history for the current thread
+  const fetchSceneHistory = useCallback(async () => {
+    if (!threadId) return;
+    
+    try {
+      const response = await fetch(`${getBaseUrl()}/api/scene-history/${threadId}`);
+      
+      if (!response.ok) {
+        console.error("Failed to fetch scene history:", response.statusText);
+        return;
+      }
+      
+      const data = await response.json();
+      if (data.history && Array.isArray(data.history)) {
+        setSceneHistory(data.history);
+      }
+    } catch (error) {
+      console.error("Error fetching scene history:", error);
+    }
+  }, [threadId, getBaseUrl]);
+  
+  // Function to analyze edits using MCP
+  const analyzeSceneEdit = useCallback(async (prompt: string) => {
+    if (!sceneState) return null;
+    
+    try {
+      const response = await fetch(`${getBaseUrl()}/api/analyze-edit`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt,
+          scene_state: sceneState,
+          thread_id: threadId,
+          conversation_history: messages.map(msg => ({
+            role: msg.type,
+            content: msg.content
+          }))
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to analyze edit: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      return data.edit_instructions;
+    } catch (error) {
+      console.error("Error analyzing scene edit:", error);
+      return null;
+    }
+  }, [sceneState, threadId, messages, getBaseUrl]);
+  
+  // Effect to fetch scene history when threadId changes
+  useEffect(() => {
+    if (threadId) {
+      fetchSceneHistory();
+    }
+  }, [threadId, fetchSceneHistory]);
   
   return {
     generateAnimation,
@@ -406,5 +520,9 @@ export function useAnimationStream() {
     status,
     isError,
     errorMessage,
+    sceneState,
+    sceneHistory,
+    fetchSceneHistory,
+    analyzeSceneEdit
   };
 }
