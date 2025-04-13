@@ -14,9 +14,6 @@ from functools import lru_cache
 from dotenv import load_dotenv
 from scene_manager import SceneManager
 
-# Load environment variables from .env file if present
-load_dotenv()
-
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -238,7 +235,7 @@ def analyze_modification_request(state: AnimationState) -> AnimationState:
                 "generation_status": "error"
             }
         
-        llm = get_llm("gemini-2.0-pro-001")  # Use a more capable model for complex parsing
+        llm = get_llm()
         
         # Prepare the scene description
         scene_desc = json.dumps(state["scene_state"], indent=2)
