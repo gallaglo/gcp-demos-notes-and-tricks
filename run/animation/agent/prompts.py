@@ -3,6 +3,7 @@ This module contains prompt templates for the Blender animation generator.
 """
 
 from langchain.prompts import PromptTemplate
+import json
 
 # System prompt for chat functionality
 CHAT_SYSTEM_PROMPT = """You are an AI assistant that specializes in creating 3D animations. You can:
@@ -165,3 +166,146 @@ BLENDER_PROMPT = PromptTemplate(
     template=BLENDER_TEMPLATE,
     input_variables=["user_prompt"]
 )
+
+EDIT_ANALYSIS_PROMPT = """You are an AI assistant that specializes in understanding user requests to modify 3D scenes. 
+You're given a scene description in JSON format and a user's request for changes.
+
+Your task is to analyze the request and determine what modifications should be made to the existing scene.
+This includes:
+1. Identifying which objects need to be modified
+2. Determining what properties should be changed (position, rotation, scale, color, etc.)
+3. Identifying if new objects should be added
+4. Identifying if existing objects should be removed
+
+The scene JSON contains an array of objects, each with:
+- id: A unique identifier
+- name: The display name
+- type: The object type (sphere, cube, cylinder, plane, light, camera)
+- position: [x, y, z] coordinates
+- rotation: [x, y, z] rotation values
+- scale: [x, y, z] scale values
+- material: Properties like color, roughness, etc.
+- properties: Additional type-specific properties
+
+OUTPUT INSTRUCTIONS:
+You must output a valid JSON object with these top-level keys:
+1. "object_changes": An object mapping IDs to changes for existing objects
+2. "add_objects": An array of new objects to add to the scene
+3. "remove_object_ids": An array of object IDs to remove
+
+For example:
+```json
+{
+  "object_changes": {
+    "obj_id_1": {
+      "position": [1, 2, 3],
+      "material": {
+        "color": [1, 0, 0]
+      }
+    }
+  },
+  "add_objects": [
+    {
+      "id": "new_sphere_1",
+      "name": "New Red Sphere",
+      "type": "sphere",
+      "position": [0, 0, 2],
+      "rotation": [0, 0, 0],
+      "scale": [1, 1, 1],
+      "material": {
+        "color": [1, 0, 0]
+      },
+      "properties": {
+        "radius": 1.0
+      }
+    }
+  ],
+  "remove_object_ids": ["obj_id_2"]
+}
+```
+
+IMPORTANT:
+- Provide ONLY this JSON object in your response, nothing else
+- Ensure all JSON is valid and properly formatted
+- If you can't determine changes with confidence, provide an empty array or object for that category
+- Use the exact object IDs from the scene when referring to existing objects
+- For colors, use RGB values between 0 and 1
+"""
+
+# Model Context Protocol (MCP) for animation editing
+MCP_EDIT_PROMPT = """<context>
+  <scene>
+    {scene_json}
+  </scene>
+  <conversation>
+    {conversation_history}
+  </conversation>
+  <current_prompt>
+    {user_prompt}
+  </current_prompt>
+</context>
+
+You are an AI specialized in 3D animation editing. Your task is to analyze the user's request to modify the current 3D scene.
+
+INSTRUCTIONS:
+Based on the user's request and the current scene state, identify the exact modifications needed.
+
+1. Determine which objects should be modified, added, or removed.
+2. Specify exact parameter changes (position, rotation, color, scale, etc.).
+3. Return your analysis as a structured JSON object.
+
+OUTPUT FORMAT:
+```json
+{
+  "object_changes": {
+    "object_id_1": {
+      "position": [x, y, z],
+      "rotation": [x, y, z],
+      "scale": [x, y, z],
+      "material": {
+        "color": [r, g, b]
+      }
+    }
+  },
+  "add_objects": [
+    {
+      "type": "sphere",
+      "name": "New Object",
+      "position": [x, y, z],
+      "rotation": [x, y, z],
+      "scale": [x, y, z],
+      "material": {
+        "color": [r, g, b]
+      },
+      "properties": {
+        "radius": 1.0
+      }
+    }
+  ],
+  "remove_object_ids": ["object_id_2"],
+  "operation_description": "Brief description of the changes being made"
+}
+```
+
+ONLY return the JSON object, nothing else. Ensure all values are valid numbers and the JSON is properly formatted.
+"""
+
+# Function to format the MCP edit prompt
+def format_mcp_edit_prompt(scene_state, conversation_history, user_prompt):
+    """Format the MCP edit prompt with scene state and conversation history"""
+    # Convert scene state to JSON string
+    scene_json = json.dumps(scene_state, indent=2)
+    
+    # Format conversation history as text
+    formatted_history = ""
+    for msg in conversation_history:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        formatted_history += f"<{role}>{content}</{role}>\n"
+    
+    # Format the prompt
+    return MCP_EDIT_PROMPT.format(
+        scene_json=scene_json,
+        conversation_history=formatted_history,
+        user_prompt=user_prompt
+    )

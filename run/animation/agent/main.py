@@ -5,10 +5,12 @@ from fastapi import FastAPI, HTTPException, Request, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-from animation_graph import run_animation_generation, AnimationState, Message
+from animation_graph import run_animation_generation, generate_blender_script, render_animation, AnimationState, Message
+from scene_manager import SceneManager
+from prompts import format_mcp_edit_prompt
 from dotenv import load_dotenv
 import logging
-from typing import Dict, Any, Optional, List, AsyncGenerator
+from typing import Dict, Any, Optional, List, AsyncGenerator, Union
 from uuid import uuid4
 
 # Load environment variables
@@ -31,46 +33,139 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # For development; restrict in production
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "OPTIONS", "PUT"],
     allow_headers=["*"],
     expose_headers=["Content-Type"],
 )
+
+# Initialize scene manager
+scene_manager = SceneManager()
 
 # Store active threads (in-memory storage - not persistent)
 active_threads = {}
 
 class AnimationRequest(BaseModel):
     prompt: str
+    thread_id: Optional[str] = None
 
 class AnimationResponse(BaseModel):
     signed_url: str
     generation_status: str
     error: str = ""
+    scene_id: Optional[str] = None
+    scene_state: Optional[Dict[str, Any]] = None
 
 class ThreadRequest(BaseModel):
     messages: List[Dict[str, Any]]
     checkpoint: Optional[str] = None
     command: Optional[Dict[str, Any]] = None
 
+class SceneEditRequest(BaseModel):
+    prompt: str
+    scene_state: Dict[str, Any]
+    thread_id: Optional[str] = None
+    conversation_history: Optional[List[Dict[str, Any]]] = None
+
 @app.post("/generate")
 async def generate_animation(request: AnimationRequest):
     """Endpoint to generate an animation from a prompt."""
     logger.info(f"Received animation request with prompt: {request.prompt}")
     try:
-        result = run_animation_generation(request.prompt)
+        # Get thread ID from request if available
+        thread_id = request.thread_id if request.thread_id else None
+        
+        result = run_animation_generation(request.prompt, thread_id=thread_id)
         logger.info(f"Animation generation completed with result: {result}")
+        
+        # Get scene state information if available
+        scene_info = {}
+        if result.get("thread_id") and result.get("scene_state"):
+            scene_info = {
+                "scene_id": result.get("scene_state", {}).get("id", ""),
+                "scene_state": result.get("scene_state", {})
+            }
         
         # Ensure consistent response structure
         return {
             "signed_url": result.get("signed_url", ""),
             "generation_status": result.get("generation_status", ""),
-            "error": result.get("error", "")
+            "error": result.get("error", ""),
+            "history": result.get("history", []),
+            "is_modification": result.get("is_modification", False),
+            **scene_info  # Include scene information if available
         }
     except Exception as e:
         logger.error(f"Error in animation generation: {str(e)}")
         return {
             "signed_url": "",
             "generation_status": "error",
+            "error": str(e)
+        }
+
+@app.post("/analyze-edit")
+async def analyze_edit_request(request: SceneEditRequest):
+    """
+    Analyze an edit request using MCP to determine specific changes to the scene.
+    
+    This endpoint takes a user prompt, current scene state, and conversation history,
+    and uses the Model Context Protocol to parse specific editing instructions.
+    """
+    try:
+        # Format the prompt using MCP
+        mcp_prompt = format_mcp_edit_prompt(
+            request.scene_state, 
+            request.conversation_history or [], 
+            request.prompt
+        )
+        
+        # Get LLM for analysis
+        from animation_graph import get_llm
+        llm = get_llm("gemini-2.0-pro-001")  # Use more capable model for parsing
+        
+        # Send request to LLM
+        response = llm.invoke(mcp_prompt)
+        
+        # Extract JSON from response
+        raw_content = response.content.strip()
+        
+        # Extract the JSON part if wrapped in ```json or ```
+        if "```json" in raw_content:
+            json_text = raw_content.split("```json")[1].split("```")[0]
+        elif "```" in raw_content:
+            json_text = raw_content.split("```")[1].split("```")[0]
+        else:
+            json_text = raw_content
+        
+        # Parse the edit instructions
+        edit_instructions = json.loads(json_text)
+        
+        return {
+            "success": True,
+            "edit_instructions": edit_instructions
+        }
+    except Exception as e:
+        logger.error(f"Error analyzing edit request: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+@app.get("/scene-history/{thread_id}")
+async def get_scene_history(thread_id: str):
+    """Get the scene history for a thread"""
+    try:
+        # Get scene history from scene manager
+        scene_history = scene_manager.get_thread_scene_history(thread_id)
+        
+        return {
+            "success": True,
+            "thread_id": thread_id,
+            "history": scene_history
+        }
+    except Exception as e:
+        logger.error(f"Error getting scene history: {str(e)}")
+        return {
+            "success": False,
             "error": str(e)
         }
 
@@ -143,8 +238,8 @@ async def process_thread_messages(thread_id: str,
             "data": {"status": "Analyzing your request"}
         }
         
-        # Run the animation generation with history
-        result = run_animation_generation(latest_message, history)
+        # Run the animation generation with history and thread_id
+        result = run_animation_generation(latest_message, history, thread_id)
         
         # Process result
         if result.get("error"):
@@ -196,15 +291,35 @@ async def process_thread_messages(thread_id: str,
                 thread_data["signedUrl"] = result["signed_url"]
                 thread_data["status"] = "completed"
                 
+                # Include scene state info in the event if available
+                scene_data = {"signed_url": result["signed_url"]}
+                if result.get("scene_state"):
+                    scene_data["scene_id"] = result.get("scene_state", {}).get("id", "")
+                    
+                    # Send scene state event
+                    yield {
+                        "type": "scene_state",
+                        "data": {"scene_state": result.get("scene_state")}
+                    }
+                
                 yield {
                     "type": "data",
-                    "data": {"signed_url": result["signed_url"]}
+                    "data": scene_data
                 }
                 
                 yield {
                     "type": "status",
                     "data": {"status": "Completed"}
                 }
+                
+                # Send scene history if available
+                if thread_id:
+                    scene_history = scene_manager.get_thread_scene_history(thread_id)
+                    if scene_history:
+                        yield {
+                            "type": "scene_history",
+                            "data": {"scene_history": scene_history}
+                        }
             else:
                 # This was just a conversation
                 thread_data["status"] = "conversation"
@@ -249,8 +364,6 @@ async def handle_thread_request(
 
 async def stream_thread_events(thread_id: str, messages: List[Dict[str, Any]]) -> AsyncGenerator[str, None]:
     """Generate streaming events for thread processing."""
-    encoder = asyncio.StreamWriter
-    
     try:
         # Process the thread messages
         async for event in process_thread_messages(thread_id, messages):
@@ -267,7 +380,20 @@ async def get_thread(thread_id: str):
     if thread_id not in active_threads:
         raise HTTPException(status_code=404, detail=f"Thread {thread_id} not found")
     
-    return active_threads[thread_id]
+    # Get thread data
+    thread_data = active_threads[thread_id]
+    
+    # Get scene state if available
+    current_scene = scene_manager.get_current_scene_for_thread(thread_id)
+    if current_scene:
+        thread_data["sceneState"] = current_scene
+    
+    # Get scene history if available
+    scene_history = scene_manager.get_thread_scene_history(thread_id)
+    if scene_history:
+        thread_data["sceneHistory"] = scene_history
+    
+    return thread_data
 
 @app.options("/{path:path}")
 async def preflight_handler(request: Request):
