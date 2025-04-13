@@ -191,17 +191,19 @@ Build and run the services locally using Docker Compose or Podman Compose for de
 3. Deploy infrastructure using Terraform
 
    ```bash
+   # Navigate into the terraform/ directory
    cd terraform
-   # Create terraform.tfvars file
-   cat << EOF > terraform.tfvars
-   project_id = "${PROJECT_ID}"
-   region = "${REGION}"
-   local_testing_mode = true
-   EOF
    
    terraform init
-   terraform apply  # enter yes to proceed
-   cd ..
+   
+   # Create a service account for the application (enter yes to proceed)
+   terraform apply \
+    -var "project_id=${PROJECT_ID}" \
+    -var "region=${REGION}" \
+    -var "local_testing_mode=true"
+    
+    # navigate back to the root directory
+    cd ..
    ```
 
 4. Set up the local environment
