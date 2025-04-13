@@ -321,7 +321,7 @@ resource "google_cloud_run_service_iam_member" "agent_invokes_animator" {
   member   = "serviceAccount:${google_service_account.agent[0].email}"
 }
 
-# Frontend service - update the environment variables to use the agent service
+# Frontend service
 resource "google_cloud_run_v2_service" "frontend" {
   count               = local.create_cloud_resources ? 1 : 0
   name                = "frontend"
@@ -336,6 +336,32 @@ resource "google_cloud_run_v2_service" "frontend" {
       env {
         name  = "LANGGRAPH_ENDPOINT"
         value = google_cloud_run_v2_service.agent[0].uri
+      }
+
+      # Add additional configuration for better observability
+      env {
+        name  = "NODE_ENV"
+        value = "production"
+      }
+
+      # Add health check for better reliability
+      startup_probe {
+        initial_delay_seconds = 10
+        timeout_seconds       = 5
+        period_seconds        = 10
+        failure_threshold     = 3
+        http_get {
+          path = "/"
+          port = 8080
+        }
+      }
+
+      # Add resource constraints
+      resources {
+        limits = {
+          cpu    = "1000m"
+          memory = "512Mi"
+        }
       }
     }
 

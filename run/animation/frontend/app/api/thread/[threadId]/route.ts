@@ -12,7 +12,7 @@ interface MessageType {
 // Define thread data interface
 interface ThreadData {
   messages: MessageType[];
-  status: 'initialized' | 'generating_script' | 'rendering' | 'completed' | 'error';
+  status: 'initialized' | 'generating_script' | 'rendering' | 'completed' | 'error' | 'conversation';
   signedUrl: string | null;
 }
 
@@ -22,7 +22,13 @@ const activeThreads: Record<string, ThreadData> = {};
 
 // Safe handling of environment variables for build time
 const getEndpoint = () => {
-  return process.env.LANGGRAPH_ENDPOINT || '';
+  // Check if we have a configured endpoint
+  if (process.env.LANGGRAPH_ENDPOINT && process.env.LANGGRAPH_ENDPOINT !== '') {
+    return process.env.LANGGRAPH_ENDPOINT;
+  }
+  
+  // No endpoint configured
+  return '';
 };
 
 async function getIdToken(audience: string) {
@@ -30,6 +36,11 @@ async function getIdToken(audience: string) {
   const client = await auth.getIdTokenClient(audience);
   const headers = await client.getRequestHeaders();
   return headers.Authorization.split(' ')[1];
+}
+
+// Helper function to send event to client
+function formatEvent<T>(type: string, data: T): string {
+  return `data: ${JSON.stringify({ type, data })}\n\n`;
 }
 
 // POST handler for thread generation
@@ -45,13 +56,6 @@ export async function POST(request: NextRequest) {
   const encoder = new TextEncoder();
   const stream = new TransformStream();
   const writer = stream.writable.getWriter();
-  
-  // Helper function to send event to the client
-  const sendEvent = async (event: string, data: unknown) => {
-    await writer.write(
-      encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
-    );
-  };
   
   // Process the request body
   const body = await request.json();
@@ -92,18 +96,32 @@ export async function POST(request: NextRequest) {
         thread.messages.push(humanMessage);
       }
       
-      // Send initial state
-      await sendEvent('state', thread);
+      // Send initial state (filtered to exclude the human message we just added)
+      const filteredMessages = thread.messages.filter(msg => 
+        // Don't include the last human message if it matches our prompt
+        !(msg.type === 'human' && msg.content === prompt)
+      );
+
+      await writer.write(encoder.encode(
+        formatEvent('state', { 
+          ...thread, 
+          messages: filteredMessages 
+        })
+      ));
+      
+      // Update status - analyzing
+      thread.status = 'generating_script';
+      await writer.write(encoder.encode(formatEvent('status', { status: 'Analyzing your request' })));
       
       // Add AI thinking message
       const thinkingMessageId = uuidv4();
       const thinkingMessage: MessageType = {
         id: thinkingMessageId,
         type: 'ai',
-        content: `Starting to generate animation for: ${prompt}`,
+        content: `I'm generating a 3D animation based on your request: '${prompt}'. This might take a moment...`,
       };
       thread.messages.push(thinkingMessage);
-      await sendEvent('message', thinkingMessage);
+      await writer.write(encoder.encode(formatEvent('message', thinkingMessage)));
       
       // Get the endpoint
       const endpoint = getEndpoint();
@@ -114,11 +132,8 @@ export async function POST(request: NextRequest) {
       // Get ID token for Cloud Run
       const idToken = await getIdToken(endpoint);
       
-      // Update status - generating script
-      thread.status = 'generating_script';
-      await sendEvent('status', { status: 'Generating Blender script' });
-      
       // Send request to LangGraph service
+      console.log(`Sending request to ${endpoint}/generate with prompt: ${prompt}`);
       const response = await fetch(`${endpoint}/generate`, {
         method: 'POST',
         headers: {
@@ -133,63 +148,67 @@ export async function POST(request: NextRequest) {
         throw new Error(`Backend error: ${errorText}`);
       }
       
-      const data = await response.json();
+      const result = await response.json();
+      console.log("Received response:", JSON.stringify(result, null, 2));
       
-      if (data.error) {
-        throw new Error(data.error);
+      if (result.error) {
+        throw new Error(result.error);
       }
       
-      // Update status - rendering
-      thread.status = 'rendering';
-      await sendEvent('status', { status: 'Rendering animation' });
-      
-      // Add rendering message
-      const renderingMessage: MessageType = {
-        id: uuidv4(),
-        type: 'ai',
-        content: 'Script generated successfully. Rendering animation...',
-      };
-      thread.messages.push(renderingMessage);
-      await sendEvent('message', renderingMessage);
-      
-      // Wait for rendering to complete (simulated with timeout in this example)
-      // In a real implementation, you might poll for updates or use websockets
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      if (data.generation_status !== 'completed') {
-        throw new Error('Animation generation failed');
+      // Update status based on result
+      if (result.generation_status === 'completed' && result.signed_url) {
+        // Set the signed URL in thread data
+        thread.signedUrl = result.signed_url;
+        
+        // IMPORTANT: Send the data event with signed_url in the correct format
+        // This matches what useAnimationStream.ts expects
+        await writer.write(encoder.encode(
+          formatEvent('data', { signed_url: result.signed_url })
+        ));
+        
+        // Add success message
+        const successMessage: MessageType = {
+          id: uuidv4(),
+          type: 'ai',
+          content: "Your animation is ready! You can see it in the viewer. Is there anything you'd like me to change about it?",
+        };
+        thread.messages.push(successMessage);
+        await writer.write(encoder.encode(formatEvent('message', successMessage)));
+        
+        // Update status
+        thread.status = 'completed';
+        await writer.write(encoder.encode(formatEvent('status', { status: 'Completed' })));
+      } else {
+        // This was just a conversation or there was an issue
+        if (result.history && Array.isArray(result.history)) {
+          // Add AI messages from history
+          for (const msg of result.history) {
+            if (msg.role === 'ai') {
+              const aiMessage: MessageType = {
+                id: uuidv4(),
+                type: 'ai',
+                content: msg.content,
+              };
+              thread.messages.push(aiMessage);
+              await writer.write(encoder.encode(formatEvent('message', aiMessage)));
+            }
+          }
+        }
+        
+        // If no signed URL, this was just a conversation
+        thread.status = 'conversation';
+        await writer.write(encoder.encode(formatEvent('status', { status: 'Conversation' })));
       }
-      
-      if (!data.signed_url) {
-        throw new Error('No signed URL in response');
-      }
-      
-      // Update with the signed URL
-      thread.signedUrl = data.signed_url;
-      await sendEvent('data', { signed_url: data.signed_url });
-      
-      // Add completion message
-      const completionMessage: MessageType = {
-        id: uuidv4(),
-        type: 'ai',
-        content: 'Your animation is ready! You can view and download it now.',
-      };
-      thread.messages.push(completionMessage);
-      await sendEvent('message', completionMessage);
-      
-      // Update status - completed
-      thread.status = 'completed';
-      await sendEvent('status', { status: 'Completed' });
       
       // End the stream
-      await sendEvent('end', {});
+      await writer.write(encoder.encode(formatEvent('end', {})));
     } catch (error) {
       console.error('Error in animation generation:', error);
       
       // Send error message
       const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
       
-      await sendEvent('error', { error: errorMessage });
+      await writer.write(encoder.encode(formatEvent('error', { error: errorMessage })));
       
       // Add error message to thread
       const thread = activeThreads[threadId];
@@ -200,10 +219,13 @@ export async function POST(request: NextRequest) {
           content: `Error: ${errorMessage}`,
         };
         thread.messages.push(aiErrorMessage);
-        await sendEvent('message', aiErrorMessage);
+        await writer.write(encoder.encode(formatEvent('message', aiErrorMessage)));
         
         thread.status = 'error';
       }
+      
+      // End the stream
+      await writer.write(encoder.encode(formatEvent('end', {})));
     } finally {
       writer.close();
     }
