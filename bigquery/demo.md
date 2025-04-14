@@ -109,7 +109,7 @@ ORDER BY
 - **Common Table Expressions (CTEs)**: The WITH PageStats AS (...) syntax creates a temporary named result set that can be referenced in the main query, making complex queries more readable and maintainable.
 - **CASE expressions**: The query uses a CASE statement to categorize data into different groups based on pattern matching, demonstrating how to transform and categorize data on-the-fly.
 - **Pattern matching**: Multiple LIKE operators with wildcards (%) are used to find partial string matches in the title field.
-- **Aggregation functions**: 
+- **Aggregation functions**:
   - SUM(views) to calculate total views for each company
   - COUNT(DISTINCT language) to count unique languages per company
 - **Subqueries in SELECT clause**: The percentage calculation uses a subquery (SELECT SUM(views) FROM PageStats) inline within the outer query to compute the denominator for the percentage.

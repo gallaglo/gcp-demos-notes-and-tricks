@@ -57,7 +57,8 @@ ORDER BY
 
 1. **Before running:** Explain wildcards (_TABLE_SUFFIX) and highlight how they help process only specific tables
 2. **After running:** Click "Job Information" to show actual bytes processed vs. total dataset size
-3. **Result exploration:** 
+3. **Result exploration:**
+ 
    - Show the Chart preview (line chart with year_month as dimension)
    - Discuss patterns: when did BigQuery become more popular than Hadoop?
    - Change to column chart to compare technologies side-by-side
@@ -113,7 +114,6 @@ ORDER BY
 ```
 
 **Discussion Points:**
-
 - Show both table and visualization (heatmap) to identify patterns
 - Highlight when ML/AI topics are most frequently viewed (weekdays vs. weekends)
 - Point out how BigQuery can handle complex time-based analysis with CTEs and joins
@@ -151,7 +151,6 @@ LIMIT 10;
 ```
 
 **Key Features to Highlight:**
-
 - Window functions (PERCENT_RANK) to analyze rankings without additional queries
 - Automatic Chart preview to visualize station popularity
 - Ability to quickly identify outliers in the data
@@ -176,7 +175,6 @@ ORDER BY
 ```
 
 **Visualization Focus:**
-
 - Use Chart preview to create a heatmap (day_of_week vs hour_of_day)
 - Identify commute patterns (weekday rush hours)
 - Compare trip patterns between subscriber types
@@ -227,7 +225,6 @@ LIMIT 20;
 ```
 
 **Key Points to Emphasize:**
-
 - Geospatial functions (ST_GEOGPOINT, ST_DISTANCE) for calculating real-world distances
 - Multi-table JOIN operations for enriching trip data with station data
 - Derivation of performance metrics (seconds_per_km) for identifying interesting patterns
