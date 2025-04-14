@@ -195,6 +195,14 @@ async def process_thread_messages(thread_id: str,
             "data": {"status": "Analyzing your request"}
         }
         
+        # NEW CODE: Check if there's an existing scene for this thread
+        # If so, modify the prompt to explicitly indicate it's a modification
+        current_scene = scene_manager.get_current_scene_for_thread(thread_id)
+        if current_scene:
+            logger.info(f"Existing scene found for thread {thread_id}. Treating as a modification request.")
+            # Prepend text to the prompt to force it to be interpreted as a modification
+            latest_message = f"MODIFY THE EXISTING ANIMATION: {latest_message}"
+        
         # Run the animation generation with history and thread_id
         result = run_animation_generation(latest_message, history, thread_id)
         

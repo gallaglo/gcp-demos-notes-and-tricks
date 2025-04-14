@@ -1,7 +1,7 @@
-# animation_graph.py
 import os
 import json
 import requests
+import uuid
 from typing import TypedDict, Dict, Any, List, Optional, Union
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langchain_google_vertexai import ChatVertexAI
@@ -83,7 +83,24 @@ def analyze_prompt(state: AnimationState) -> AnimationState:
     modification of an existing animation, or just a conversational response.
     """
     try:
-        # Get LLM for analysis
+        # Get the current scene state for this thread if it exists
+        current_scene = None
+        if state.get("thread_id"):
+            current_scene = scene_manager.get_current_scene_for_thread(state["thread_id"])
+        
+        # SIMPLIFIED APPROACH: If there's an existing scene for this thread, 
+        # automatically treat it as a modification request
+        if current_scene:
+            logger.info(f"Existing scene found for thread {state.get('thread_id')}. Treating as a modification request.")
+            return {
+                **state,
+                "prompt": state["current_prompt"],
+                "generation_status": "analyzing_modification",
+                "is_modification": True,
+                "scene_state": current_scene
+            }
+        
+        # If no existing scene, proceed with regular analysis
         llm = get_llm()
         
         # Create the message history for context
@@ -98,67 +115,20 @@ def analyze_prompt(state: AnimationState) -> AnimationState:
             else:
                 messages.append(AIMessage(content=msg["content"]))
         
-        # Get the current scene state for this thread if it exists
-        current_scene = None
-        if state.get("thread_id"):
-            current_scene = scene_manager.get_current_scene_for_thread(state["thread_id"])
+        # Standard prompt for new animation vs conversation
+        analysis_prompt = f"""
+        I need to determine if the following user message is requesting a 3D animation to be generated or if it's just regular conversation.
         
-        # Modify the analysis prompt based on whether there's an existing scene
-        if current_scene:
-            # Prepare scene description for the prompt
-            scene_desc = f"""
-            Current scene description: {current_scene['description']}
-            
-            Scene contains:
-            """
-            
-            # Group objects by type for a cleaner description
-            obj_types = {}
-            for obj in current_scene["objects"]:
-                obj_type = obj["type"]
-                if obj_type not in obj_types:
-                    obj_types[obj_type] = []
-                obj_types[obj_type].append(obj["name"])
-            
-            # Add object descriptions
-            for obj_type, names in obj_types.items():
-                scene_desc += f"- {len(names)} {obj_type}(s): {', '.join(names)}\n"
-            
-            analysis_prompt = f"""
-            I need to determine if the user is requesting a modification to the existing 3D animation,
-            asking for a completely new animation, or just having a conversation.
-            
-            {scene_desc}
-            
-            User message: "{state['current_prompt']}"
-            
-            If the user is asking for a modification to the existing animation (changing colors, moving objects, 
-            adding/removing objects, changing animation, etc.), respond with:
-            "MODIFY_ANIMATION: <brief description of the modification>"
-            
-            If the user is requesting a completely new animation unrelated to the current one, respond with:
-            "GENERATE_ANIMATION: <brief description of what to animate>"
-            
-            If the user is just having a conversation, asking a question, or not requesting any visual content,
-            respond with "CONVERSATION: <your conversational response to the user>"
-            
-            Only respond with one of these formats. Don't add any explanation.
-            """
-        else:
-            # No existing scene, use the standard prompt
-            analysis_prompt = f"""
-            I need to determine if the following user message is requesting a 3D animation to be generated or if it's just regular conversation.
-            
-            User message: "{state['current_prompt']}"
-            
-            If the user is clearly requesting a 3D animation, visual content, or mentioning objects, scenes or animations
-            respond with "GENERATE_ANIMATION: <brief description of what to animate>".
-            
-            If the user is just having a conversation, asking a general question, or not requesting any visual content,
-            respond with "CONVERSATION: <your conversational response to the user>".
-            
-            Only respond with one of these formats. Don't add any explanation.
-            """
+        User message: "{state['current_prompt']}"
+        
+        If the user is clearly requesting a 3D animation, visual content, or mentioning objects, scenes or animations
+        respond with "GENERATE_ANIMATION: <brief description of what to animate>".
+        
+        If the user is just having a conversation, asking a general question, or not requesting any visual content,
+        respond with "CONVERSATION: <your conversational response to the user>".
+        
+        Only respond with one of these formats. Don't add any explanation.
+        """
         
         messages.append(HumanMessage(content=analysis_prompt))
         
@@ -176,24 +146,6 @@ def analyze_prompt(state: AnimationState) -> AnimationState:
                 "generation_status": "analyzing",
                 "is_modification": False
             }
-        elif analysis.startswith("MODIFY_ANIMATION:"):
-            # Handle modification request
-            if current_scene:
-                return {
-                    **state,
-                    "prompt": state["current_prompt"],
-                    "generation_status": "analyzing_modification",
-                    "is_modification": True,
-                    "scene_state": current_scene
-                }
-            else:
-                # Fall back to generating a new animation if there's no existing scene
-                return {
-                    **state,
-                    "prompt": state["current_prompt"],
-                    "generation_status": "analyzing",
-                    "is_modification": False
-                }
         elif analysis.startswith("CONVERSATION:"):
             # Extract conversation response (everything after "CONVERSATION:")
             conversation_response = analysis[len("CONVERSATION:"):].strip()
@@ -696,6 +648,9 @@ def router(state: AnimationState) -> str:
         return "end"
     if state.get("generation_status") == "conversation_only":
         return "end"
+    # Check for is_modification flag and bypassing analyze_prompt
+    if state.get("is_modification", False) and state.get("generation_status") == "started":
+        return "analyze_modification"
     if state.get("generation_status") == "analyzing":
         return "generate_script"
     if state.get("generation_status") == "analyzing_modification":
@@ -778,18 +733,35 @@ def run_animation_generation(prompt: str, history: List[Message] = None, thread_
     # Add current prompt to history
     updated_history = history + [{"role": "human", "content": prompt}]
     
+    # Check if there's an existing scene for this thread
+    is_modification = False
+    scene_state = {}
+    if thread_id:
+        current_scene = scene_manager.get_current_scene_for_thread(thread_id)
+        if current_scene:
+            # This is an existing thread with a scene, so we'll treat it as a modification
+            logger.info(f"Existing scene found for thread {thread_id}. Treating as a modification request.")
+            is_modification = True
+            scene_state = current_scene
+            # Set generation_status to skip directly to modification analysis
+            generation_status = "analyzing_modification"
+        else:
+            generation_status = "started"
+    else:
+        generation_status = "started"
+    
     # Initialize the state
     initial_state = AnimationState(
-        prompt="",  # Will be set by analyze_prompt if needed
+        prompt=prompt,  # Set the prompt directly instead of empty string
         current_prompt=prompt,
         blender_script="",
-        generation_status="started",
+        generation_status=generation_status,
         signed_url="",
         error="",
         history=updated_history,
-        thread_id=thread_id,  # Always include a valid thread ID
-        scene_state={},  # Will be populated if needed
-        is_modification=False,  # Default to not being a modification
+        thread_id=thread_id,
+        scene_state=scene_state,  # Include the scene state if it exists
+        is_modification=is_modification,  # Set based on whether an existing scene was found
         object_changes={}  # Will be populated during modification analysis
     )
     
