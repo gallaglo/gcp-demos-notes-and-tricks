@@ -1,4 +1,3 @@
-// lib/agentClient.ts
 import { v4 as uuidv4 } from 'uuid';
 import { fetchWithRetry, RetryContext } from './utils';
 import { SceneState } from './types/scene';
@@ -153,6 +152,7 @@ export class AgentClient {
     conversationHistory?: { role: string, content: string }[]
   ) {
     try {
+      // Use the analyze-edit endpoint as defined in the backend API
       const response = await fetchWithRetry(
         `${this.baseUrl}/analyze-edit`,
         {

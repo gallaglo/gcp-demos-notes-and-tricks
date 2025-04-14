@@ -7,6 +7,11 @@ interface MessageType {
   id: string;
   type: 'human' | 'ai';
   content: string;
+  metadata?: {
+    sceneId?: string;
+    modifiedObjects?: string[];
+    action?: 'create' | 'modify' | 'delete';
+  };
 }
 
 // Define thread data interface
@@ -48,7 +53,10 @@ export async function POST(request: NextRequest) {
   // Extract threadId from URL
   const url = new URL(request.url);
   const pathParts = url.pathname.split('/');
-  const threadId = pathParts[pathParts.length - 1] === 'new' 
+  const isNewThread = pathParts[pathParts.length - 1] === 'new' 
+    ? true 
+    : false;
+  const threadId = isNewThread 
     ? uuidv4() 
     : pathParts[pathParts.length - 1];
   
@@ -132,15 +140,22 @@ export async function POST(request: NextRequest) {
       // Get ID token for Cloud Run
       const idToken = await getIdToken(endpoint);
       
-      // Send request to LangGraph service
-      console.log(`Sending request to ${endpoint}/generate with prompt: ${prompt}`);
-      const response = await fetch(`${endpoint}/generate`, {
+      // Determine if we're creating a new thread or updating an existing one
+      const targetThreadId = isNewThread ? 'new' : threadId;
+      console.log(`Sending request to ${endpoint}/thread/${targetThreadId} with prompt: ${prompt}`);
+      
+      // Send request to backend ThreadRequest handler
+      const response = await fetch(`${endpoint}/thread/${targetThreadId}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${idToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ 
+          messages: messages,
+          checkpoint: null,
+          command: null
+        }),
       });
       
       if (!response.ok) {
@@ -148,25 +163,102 @@ export async function POST(request: NextRequest) {
         throw new Error(`Backend error: ${errorText}`);
       }
       
-      const result = await response.json();
-      console.log("Received response:", JSON.stringify(result, null, 2));
+      // Start looking for messages that indicate animation is ready
+      await writer.write(encoder.encode(formatEvent('status', { status: 'Rendering animation...' })));
       
-      if (result.error) {
-        throw new Error(result.error);
+      // For streaming response, handle event stream from backend
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error("Failed to get response reader");
       }
       
-      // Update status based on result
-      if (result.generation_status === 'completed' && result.signed_url) {
-        // Set the signed URL in thread data
-        thread.signedUrl = result.signed_url;
+      const backendDecoder = new TextDecoder();
+      let buffer = "";
+      let foundSignedUrl = false;
+      let signedUrl = null;
+      
+      // Process the stream from backend
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
         
-        // IMPORTANT: Send the data event with signed_url in the correct format
-        // This matches what useAnimationStream.ts expects
+        buffer += backendDecoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() || "";
+        
+        for (const line of lines) {
+          if (line.trim() === '' || !line.startsWith('data: ')) continue;
+          
+          try {
+            // Parse event from backend
+            const eventString = line.substring(6);
+            const eventData = JSON.parse(eventString);
+            
+            console.log("Processing event:", eventData.type);
+            
+            // Forward event to client
+            await writer.write(encoder.encode(`data: ${eventString}\n\n`));
+            
+            // Special handling for data events with signed URLs
+            if (eventData.type === 'data' && eventData.data) {
+              const url = eventData.data.signed_url || eventData.data.signedUrl;
+              if (url) {
+                console.log("Found signed URL", url.substring(0, 30) + "...");
+                foundSignedUrl = true;
+                signedUrl = url;
+                thread.signedUrl = url;
+                
+                // Send an additional explicit data event with the signed URL
+                // This ensures the client receives it in a consistent format
+                await writer.write(encoder.encode(
+                  formatEvent('data', { signed_url: url })
+                ));
+              }
+            }
+            
+            // Process event for local state
+            if (eventData.type === 'message' && eventData.data) {
+              const messageData = eventData.data;
+              // Add message to thread if it's not already there
+              const messageExists = thread.messages.some(msg => 
+                (msg.id === messageData.id) || 
+                (msg.type === messageData.type && msg.content === messageData.content)
+              );
+              
+              if (!messageExists) {
+                thread.messages.push({
+                  id: messageData.id || uuidv4(),
+                  type: messageData.type,
+                  content: messageData.content,
+                  metadata: messageData.metadata
+                });
+              }
+            } else if (eventData.type === 'status' && eventData.data?.status) {
+              // Update status
+              thread.status = eventData.data.status === 'Completed' 
+                ? 'completed' 
+                : eventData.data.status === 'Conversation'
+                  ? 'conversation'
+                  : thread.status;
+            } else if (eventData.type === 'error') {
+              // Update error status
+              thread.status = 'error';
+            }
+          } catch (e) {
+            console.error("Failed to parse event from backend:", line, e);
+          }
+        }
+      }
+      
+      // If we found a signed URL in the events, but the 'data' event might have been missed,
+      // send it again to ensure the client receives it
+      if (foundSignedUrl && signedUrl) {
+        console.log("Sending final signed URL to client");
         await writer.write(encoder.encode(
-          formatEvent('data', { signed_url: result.signed_url })
+          formatEvent('data', { signed_url: signedUrl })
         ));
         
-        // Add success message
+        // Add a success message
         const successMessage: MessageType = {
           id: uuidv4(),
           type: 'ai',
@@ -175,29 +267,8 @@ export async function POST(request: NextRequest) {
         thread.messages.push(successMessage);
         await writer.write(encoder.encode(formatEvent('message', successMessage)));
         
-        // Update status
         thread.status = 'completed';
         await writer.write(encoder.encode(formatEvent('status', { status: 'Completed' })));
-      } else {
-        // This was just a conversation or there was an issue
-        if (result.history && Array.isArray(result.history)) {
-          // Add AI messages from history
-          for (const msg of result.history) {
-            if (msg.role === 'ai') {
-              const aiMessage: MessageType = {
-                id: uuidv4(),
-                type: 'ai',
-                content: msg.content,
-              };
-              thread.messages.push(aiMessage);
-              await writer.write(encoder.encode(formatEvent('message', aiMessage)));
-            }
-          }
-        }
-        
-        // If no signed URL, this was just a conversation
-        thread.status = 'conversation';
-        await writer.write(encoder.encode(formatEvent('status', { status: 'Conversation' })));
       }
       
       // End the stream
@@ -232,11 +303,13 @@ export async function POST(request: NextRequest) {
   })().catch(console.error);
   
   // Return the stream response
+  // Include the threadId in the Location header for new threads
   return new Response(stream.readable, {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
       'Connection': 'keep-alive',
+      'Location': isNewThread ? `/api/thread/${threadId}` : url.pathname,
     },
   });
 }

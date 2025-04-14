@@ -29,6 +29,7 @@ type AnimationCustomEvent = {
   type: 'data' | 'status' | 'error' | 'message' | 'state' | 'end' | 'scene_state' | 'scene_history';
   data?: {
     signed_url?: string;
+    signedUrl?: string;
     status?: string;
     content?: string;
     id?: string;
@@ -57,11 +58,25 @@ export function useAnimationStream() {
   // Use a ref to track the current prompt being processed to avoid duplicates
   const currentPromptRef = useRef<string | null>(null);
   
-  // Use a Set to track messages we've already added locally
-  const localMessageContentsRef = useRef<Set<string>>(new Set());
+  // Use a Set to track message IDs we've already added to prevent duplicates
+  const messageIdsRef = useRef<Set<string>>(new Set());
+  
+  // Use a Set to track human/user message contents to prevent duplicates
+  const humanMessageContentsRef = useRef<Set<string>>(new Set());
+  
+  // Use a Map to track AI message content we've already added to prevent duplicates
+  const aiMessageContentsRef = useRef<Map<string, boolean>>(new Map());
+
+  // Store threadId in a ref to make sure we always have the latest value in callbacks
+  const threadIdRef = useRef<string | null>(null);
 
   // Agent client for API communication
   const agentClientRef = useRef<AgentClient | null>(null);
+
+  // Update threadIdRef whenever threadId changes
+  useEffect(() => {
+    threadIdRef.current = threadId;
+  }, [threadId]);
 
   // Initialize the agent client
   useEffect(() => {
@@ -87,8 +102,8 @@ export function useAnimationStream() {
       const threadData = await agentClientRef.current.getThread(currentThreadId);
       
       // Update state
-      if (threadData.messages) {
-        // Convert AgentMessage to MessageType
+      if (threadData.messages && threadData.messages.length > 0) {
+        // Convert AgentMessage to MessageType and track them for deduplication
         const convertedMessages = threadData.messages.map((msg: AgentMessage): MessageType => ({
           id: msg.id,
           type: msg.type,
@@ -96,15 +111,22 @@ export function useAnimationStream() {
           metadata: msg.metadata
         }));
         
-        setMessages(convertedMessages);
-        
-        // Update our local message tracking set
-        convertedMessages.forEach((msg: MessageType) => {
-          localMessageContentsRef.current.add(msg.content);
+        // Track all messages to prevent duplicates
+        convertedMessages.forEach(msg => {
+          messageIdsRef.current.add(msg.id);
+          
+          if (msg.type === 'human') {
+            humanMessageContentsRef.current.add(msg.content);
+          } else {
+            aiMessageContentsRef.current.set(msg.content, true);
+          }
         });
+        
+        setMessages(convertedMessages);
       }
       
       if (threadData.signedUrl) {
+        console.log("Setting signed URL from thread data:", threadData.signedUrl.substring(0, 50) + "...");
         setSignedUrl(threadData.signedUrl);
       }
       
@@ -131,15 +153,53 @@ export function useAnimationStream() {
     const savedThreadId = localStorage.getItem('animationThreadId');
     if (savedThreadId) {
       setThreadId(savedThreadId);
+      threadIdRef.current = savedThreadId;
       
       // Fetch the thread data
       fetchThreadData(savedThreadId).catch(console.error);
     }
   }, [fetchThreadData]);
   
+  // Helper to check if a message is a duplicate
+  const isDuplicateMessage = useCallback((id: string, content: string, type: string): boolean => {
+    // Check if we've seen this ID before
+    if (messageIdsRef.current.has(id)) {
+      return true;
+    }
+    
+    // For human messages, check content exactly
+    if (type === 'human') {
+      if (humanMessageContentsRef.current.has(content)) {
+        return true;
+      }
+    }
+    // For AI messages, do more sophisticated checking
+    else if (type === 'ai') {
+      // Check exact content match
+      if (aiMessageContentsRef.current.has(content)) {
+        return true;
+      }
+      
+      // Special check for generated animation message which might be repeated
+      if (content.includes("Your animation is ready") && 
+          Array.from(aiMessageContentsRef.current.keys()).some(
+            existingContent => existingContent.includes("Your animation is ready"))) {
+        return true;
+      }
+      
+      // Special check for initialization messages
+      if (currentPromptRef.current && 
+          content.includes(`I'm generating a 3D animation based on your request: '${currentPromptRef.current}'`)) {
+        return true;
+      }
+    }
+    
+    return false;
+  }, []);
+  
   // Process events from the stream
   const handleEvent = useCallback((event: AnimationCustomEvent) => {
-    console.log("Received event:", event);
+    if (event.type) console.log("Received event:", event.type);
     
     switch (event.type) {
       case 'state': {
@@ -152,21 +212,29 @@ export function useAnimationStream() {
         
         // Don't completely replace messages; merge with existing ones
         setMessages(prevMessages => {
-          // Create a map of existing messages by ID for quick lookup
-          const existingMessagesMap = new Map(
-            prevMessages.map(msg => [msg.id, msg])
-          );
+          // Start with current messages
+          const existingMessages = [...prevMessages];
+          const existingIds = new Set(existingMessages.map(msg => msg.id));
           
-          // Add any new messages from the server that we don't have yet
+          // Add only new server messages
+          const newMessages = [];
           for (const serverMsg of serverMessages) {
-            if (!existingMessagesMap.has(serverMsg.id)) {
-              existingMessagesMap.set(serverMsg.id, serverMsg);
+            if (!existingIds.has(serverMsg.id) && 
+                !isDuplicateMessage(serverMsg.id, serverMsg.content, serverMsg.type)) {
+              // Add to tracking sets
+              messageIdsRef.current.add(serverMsg.id);
+              
+              if (serverMsg.type === 'human') {
+                humanMessageContentsRef.current.add(serverMsg.content);
+              } else {
+                aiMessageContentsRef.current.set(serverMsg.content, true);
+              }
+              
+              newMessages.push(serverMsg);
             }
           }
           
-          // Convert back to array and sort by insertion order
-          // This preserves the conversation flow
-          return Array.from(existingMessagesMap.values());
+          return [...existingMessages, ...newMessages];
         });
         break;
       }
@@ -184,17 +252,9 @@ export function useAnimationStream() {
         
         const messageContent = data.content || '';
         
-        // Skip initial messages that match our current prompt's initial message
-        if (messageType === 'ai' && 
-            currentPromptRef.current && 
-            messageContent.includes(`I'm generating a 3D animation based on your request: '${currentPromptRef.current}'`)) {
-          console.log("Skipping duplicate initial message:", messageContent);
-          return;
-        }
-        
-        // Check if we've already seen this message content
-        if (localMessageContentsRef.current.has(messageContent)) {
-          console.log("Skipping already displayed message:", messageContent);
+        // Skip if this message is a duplicate
+        if (isDuplicateMessage(id, messageContent, messageType)) {
+          console.log("Skipping duplicate message:", messageContent.substring(0, 50));
           return;
         }
         
@@ -207,18 +267,16 @@ export function useAnimationStream() {
           }
         };
         
-        // Add to our local tracking set
-        localMessageContentsRef.current.add(messageContent);
+        // Add to tracking sets
+        messageIdsRef.current.add(id);
+        if (messageType === 'human') {
+          humanMessageContentsRef.current.add(messageContent);
+        } else {
+          aiMessageContentsRef.current.set(messageContent, true);
+        }
         
         // Add the message to the UI
-        setMessages(prev => {
-          // Check if we already have this message (by id)
-          const exists = prev.some(msg => msg.id === messageData.id);
-          if (exists) {
-            return prev;
-          }
-          return [...prev, messageData];
-        });
+        setMessages(prev => [...prev, messageData]);
         break;
       }
         
@@ -226,8 +284,10 @@ export function useAnimationStream() {
         const data = event.data;
         if (!data) break;
         
-        const url = data.signed_url;
+        // Check multiple possible URL field names
+        const url = data.signed_url || data.signedUrl;
         if (url) {
+          console.log("Received signed URL in data event:", url.substring(0, 50) + "...");
           setSignedUrl(url);
         }
         
@@ -278,7 +338,7 @@ export function useAnimationStream() {
         break;
       }
     }
-  }, []);
+  }, [isDuplicateMessage]);
   
   // Function to create a thread and stream events
   const generateAnimation = useCallback(async (prompt: string) => {
@@ -286,6 +346,12 @@ export function useAnimationStream() {
     setErrorMessage('');
     setStatus('Processing your request...');
     setIsLoading(true);
+    
+    // Check if this is a duplicate human message
+    if (humanMessageContentsRef.current.has(prompt)) {
+      console.log("Detected duplicate human prompt:", prompt);
+      // We'll still process it, but ensure we don't add it again to our messages state
+    }
     
     // Store the current prompt to help with deduplication
     currentPromptRef.current = prompt;
@@ -305,19 +371,40 @@ export function useAnimationStream() {
         content: `I'm generating a 3D animation based on your request: '${prompt}'. This might take a moment...`
       };
       
-      // Track these messages locally
-      localMessageContentsRef.current.add(humanMessage.content);
-      localMessageContentsRef.current.add(initialMessage.content);
+      // Add this prompt to our set of human messages so we don't duplicate it
+      humanMessageContentsRef.current.add(prompt);
       
-      // Add the human message and initial AI message immediately
-      setMessages(prevMessages => [...prevMessages, humanMessage, initialMessage]);
+      // Track these messages to prevent duplicates
+      messageIdsRef.current.add(humanMessage.id);
+      messageIdsRef.current.add(initialMessage.id);
+      aiMessageContentsRef.current.set(initialMessage.content, true);
+      
+      // Add human message only if it's not already in our messages list
+      setMessages(prevMessages => {
+        // Check if the exact content already exists in our message list
+        const promptExists = prevMessages.some(msg => 
+          msg.type === 'human' && msg.content === prompt
+        );
+        
+        if (promptExists) {
+          // Only add the AI processing message
+          return [...prevMessages, initialMessage];
+        } else {
+          // Add both human and AI message
+          return [...prevMessages, humanMessage, initialMessage];
+        }
+      });
+      
+      // IMPORTANT: Use the current threadId from the ref, not the state
+      // This ensures we're using the latest value
+      const currentThreadId = threadIdRef.current;
       
       // Create a new thread or use existing one
-      const endpoint = threadId 
-        ? `${getBaseUrl()}/api/thread/${threadId}` 
+      const endpoint = currentThreadId 
+        ? `${getBaseUrl()}/api/thread/${currentThreadId}` 
         : `${getBaseUrl()}/api/thread/new`;
       
-      console.log(`Sending request to: ${endpoint}`);
+      console.log(`Sending request to: ${endpoint} with thread ID: ${currentThreadId || 'new'}`);
       
       // Send request to create/update thread (only send the human message)
       const response = await fetch(endpoint, {
@@ -335,12 +422,25 @@ export function useAnimationStream() {
         throw new Error(`Server error: ${response.status} ${errorText}`);
       }
       
-      // If this is a new thread, save the thread ID from the URL
-      if (!threadId && response.url) {
-        const urlParts = response.url.split('/');
-        const newThreadId = urlParts[urlParts.length - 1];
+      // If this is a new thread, save the thread ID from the URL or Location header
+      if (!currentThreadId) {
+        // First try to get it from the location header
+        const locationHeader = response.headers.get('Location');
+        let newThreadId: string | null = null;
+        
+        if (locationHeader) {
+          const locationParts = locationHeader.split('/');
+          newThreadId = locationParts[locationParts.length - 1];
+        } else if (response.url) {
+          // Fallback to the URL
+          const urlParts = response.url.split('/');
+          newThreadId = urlParts[urlParts.length - 1];
+        }
+        
         if (newThreadId && newThreadId !== 'new') {
+          console.log(`Setting thread ID to: ${newThreadId}`);
           setThreadId(newThreadId);
+          threadIdRef.current = newThreadId;
           // Save to localStorage for persistence across refreshes
           localStorage.setItem('animationThreadId', newThreadId);
         }
@@ -355,14 +455,24 @@ export function useAnimationStream() {
       const decoder = new TextDecoder();
       let buffer = "";
       
+      console.log("Started reading response stream");
+      
       // Process the stream
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          console.log("Response stream ended");
+          break;
+        }
         
-        buffer += decoder.decode(value, { stream: true });
+        const chunk = decoder.decode(value, { stream: true });
+        console.log(`Received chunk: ${chunk.length} characters`);
+        
+        buffer += chunk;
         const lines = buffer.split("\n\n");
         buffer = lines.pop() || "";
+        
+        console.log(`Processing ${lines.length} events`);
         
         for (const line of lines) {
           if (line.trim() === '' || !line.startsWith('data: ')) continue;
@@ -391,6 +501,9 @@ export function useAnimationStream() {
         }
       }
       
+      console.log("Completed processing animation stream");
+      console.log("Final signedUrl:", signedUrl ? "Present" : "Not present");
+      
       setIsLoading(false);
       currentPromptRef.current = null;
     } catch (error) {
@@ -402,23 +515,21 @@ export function useAnimationStream() {
       currentPromptRef.current = null;
       
       // Add an error message
-      const errorContent = "Sorry, there was an error generating the animation. You can try another prompt if you'd like.";
+      const errorMessage: MessageType = {
+        id: uuidv4(),
+        type: 'ai',
+        content: "Sorry, there was an error generating the animation. You can try another prompt if you'd like."
+      };
       
-      // Only add if we haven't already
-      if (!localMessageContentsRef.current.has(errorContent)) {
-        localMessageContentsRef.current.add(errorContent);
+      // Only add if not a duplicate
+      if (!isDuplicateMessage(errorMessage.id, errorMessage.content, errorMessage.type)) {
+        messageIdsRef.current.add(errorMessage.id);
+        aiMessageContentsRef.current.set(errorMessage.content, true);
         
-        setMessages(prev => [
-          ...prev, 
-          {
-            id: uuidv4(),
-            type: 'ai',
-            content: errorContent
-          }
-        ]);
+        setMessages(prev => [...prev, errorMessage]);
       }
     }
-  }, [threadId, handleEvent, getBaseUrl]);
+  }, [handleEvent, getBaseUrl, signedUrl, isDuplicateMessage]);
   
   // Function to stop the generation
   const stopGeneration = useCallback(() => {
@@ -426,22 +537,20 @@ export function useAnimationStream() {
     currentPromptRef.current = null;
     
     // Add a message indicating the generation was stopped
-    const stoppedContent = "The animation generation was interrupted. You can try another prompt if you'd like.";
+    const stoppedMessage: MessageType = {
+      id: uuidv4(),
+      type: 'ai',
+      content: "The animation generation was interrupted. You can try another prompt if you'd like."
+    };
     
-    // Only add if we haven't already
-    if (!localMessageContentsRef.current.has(stoppedContent)) {
-      localMessageContentsRef.current.add(stoppedContent);
+    // Only add if not a duplicate
+    if (!isDuplicateMessage(stoppedMessage.id, stoppedMessage.content, stoppedMessage.type)) {
+      messageIdsRef.current.add(stoppedMessage.id);
+      aiMessageContentsRef.current.set(stoppedMessage.content, true);
       
-      setMessages(prev => [
-        ...prev,
-        {
-          id: uuidv4(),
-          type: 'ai',
-          content: stoppedContent
-        }
-      ]);
+      setMessages(prev => [...prev, stoppedMessage]);
     }
-  }, []);
+  }, [isDuplicateMessage]);
   
   // Function to clear chat history and start a new conversation
   const clearConversation = useCallback(() => {
@@ -451,8 +560,14 @@ export function useAnimationStream() {
     setIsError(false);
     setErrorMessage('');
     setThreadId(null);
+    threadIdRef.current = null;
     currentPromptRef.current = null;
-    localMessageContentsRef.current.clear();
+    
+    // Clear message tracking
+    messageIdsRef.current.clear();
+    humanMessageContentsRef.current.clear();
+    aiMessageContentsRef.current.clear();
+    
     localStorage.removeItem('animationThreadId');
     
     // Clear scene state
@@ -462,10 +577,10 @@ export function useAnimationStream() {
   
   // Function to fetch scene history for the current thread
   const fetchSceneHistory = useCallback(async () => {
-    if (!threadId || !agentClientRef.current) return;
+    if (!threadIdRef.current || !agentClientRef.current) return;
     
     try {
-      const response = await agentClientRef.current.getSceneHistory(threadId);
+      const response = await agentClientRef.current.getSceneHistory(threadIdRef.current);
       
       if (response.history && Array.isArray(response.history)) {
         setSceneHistory(response.history);
@@ -473,7 +588,7 @@ export function useAnimationStream() {
     } catch (error) {
       console.error("Error fetching scene history:", error);
     }
-  }, [threadId]);
+  }, []);
   
   // Function to analyze edits using the AgentClient
   const analyzeSceneEdit = useCallback(async (prompt: string) => {
@@ -488,7 +603,7 @@ export function useAnimationStream() {
       const response = await agentClientRef.current.analyzeSceneEdit(
         prompt,
         sceneState,
-        threadId || undefined,
+        threadIdRef.current || undefined,
         conversationHistory
       );
       
@@ -497,7 +612,7 @@ export function useAnimationStream() {
       console.error("Error analyzing scene edit:", error);
       return null;
     }
-  }, [sceneState, threadId, messages]);
+  }, [sceneState, messages]);
   
   // Effect to fetch scene history when threadId changes
   useEffect(() => {
