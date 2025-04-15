@@ -121,15 +121,15 @@ export async function POST(request: NextRequest) {
       thread.status = 'generating_script';
       await writer.write(encoder.encode(formatEvent('status', { status: 'Analyzing your request' })));
       
-      // Add AI thinking message
-      const thinkingMessageId = uuidv4();
-      const thinkingMessage: MessageType = {
-        id: thinkingMessageId,
-        type: 'ai',
-        content: `I'm generating a 3D animation based on your request: '${prompt}'. This might take a moment...`,
-      };
-      thread.messages.push(thinkingMessage);
-      await writer.write(encoder.encode(formatEvent('message', thinkingMessage)));
+      // Add AI thinking message - Don't need this anymore, the agent will handle this
+      // const thinkingMessageId = uuidv4();
+      // const thinkingMessage: MessageType = {
+      //   id: thinkingMessageId,
+      //   type: 'ai',
+      //   content: `I'm generating a 3D animation based on your request: '${prompt}'. This might take a moment...`,
+      // };
+      // thread.messages.push(thinkingMessage);
+      // await writer.write(encoder.encode(formatEvent('message', thinkingMessage)));
       
       // Get the endpoint
       const endpoint = getEndpoint();
@@ -258,14 +258,7 @@ export async function POST(request: NextRequest) {
           formatEvent('data', { signed_url: signedUrl })
         ));
         
-        // Add a success message
-        const successMessage: MessageType = {
-          id: uuidv4(),
-          type: 'ai',
-          content: "Your animation is ready! You can see it in the viewer. Is there anything you'd like me to change about it?",
-        };
-        thread.messages.push(successMessage);
-        await writer.write(encoder.encode(formatEvent('message', successMessage)));
+        // Success messages are now handled by the agent, so we don't need to add them here
         
         thread.status = 'completed';
         await writer.write(encoder.encode(formatEvent('status', { status: 'Completed' })));
@@ -310,6 +303,7 @@ export async function POST(request: NextRequest) {
       'Cache-Control': 'no-cache, no-transform',
       'Connection': 'keep-alive',
       'Location': isNewThread ? `/api/thread/${threadId}` : url.pathname,
+      'X-Thread-ID': threadId  // Add thread ID explicitly in header for client reference
     },
   });
 }
@@ -331,6 +325,45 @@ export async function GET(request: NextRequest) {
   }
   
   return new Response(JSON.stringify(activeThreads[threadId]), {
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+}
+
+// DELETE endpoint to clear a thread
+export async function DELETE(request: NextRequest) {
+  // Extract threadId from URL
+  const url = new URL(request.url);
+  const pathParts = url.pathname.split('/');
+  const threadId = pathParts[pathParts.length - 1];
+  
+  if (threadId === 'all') {
+    // Clear all threads - can be useful for admin/debugging
+    Object.keys(activeThreads).forEach(key => {
+      delete activeThreads[key];
+    });
+    
+    return new Response(JSON.stringify({ success: true, message: 'All threads cleared' }), {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+  }
+  
+  if (!activeThreads[threadId]) {
+    return new Response(JSON.stringify({ error: 'Thread not found' }), {
+      status: 404,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+  }
+  
+  // Delete this specific thread
+  delete activeThreads[threadId];
+  
+  return new Response(JSON.stringify({ success: true }), {
     headers: {
       'Content-Type': 'application/json',
     },

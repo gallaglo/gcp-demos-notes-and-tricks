@@ -94,11 +94,31 @@ export function useAnimationStream() {
     return '';
   }, []);
   
+  // Function to fetch scene history for the current thread
+  const fetchSceneHistory = useCallback(async () => {
+    if (!threadIdRef.current || !agentClientRef.current) return;
+    
+    try {
+      const response = await agentClientRef.current.getSceneHistory(threadIdRef.current);
+      
+      if (response.history && Array.isArray(response.history)) {
+        setSceneHistory(response.history);
+        console.log(`Loaded ${response.history.length} scenes in history for thread ${threadIdRef.current}`);
+      } else {
+        console.log(`No scene history found for thread ${threadIdRef.current}`);
+      }
+    } catch (error) {
+      console.error("Error fetching scene history:", error);
+      // Don't set scene history to empty on error, maintain current value
+    }
+  }, []);
+  
   // Function to fetch thread data
   const fetchThreadData = useCallback(async (currentThreadId: string) => {
     try {
       if (!agentClientRef.current) return;
       
+      console.log(`Fetching thread data for thread: ${currentThreadId}`);
       const threadData = await agentClientRef.current.getThread(currentThreadId);
       
       // Update state
@@ -123,6 +143,7 @@ export function useAnimationStream() {
         });
         
         setMessages(convertedMessages);
+        console.log(`Loaded ${convertedMessages.length} messages for thread ${currentThreadId}`);
       }
       
       if (threadData.signedUrl) {
@@ -136,27 +157,35 @@ export function useAnimationStream() {
       
       // Update scene state if available
       if (threadData.sceneState) {
+        console.log(`Setting scene state for thread ${currentThreadId} to ${threadData.sceneState.id}`);
         setSceneState(threadData.sceneState);
       }
       
       // Update scene history if available
       if (threadData.sceneHistory) {
+        console.log(`Setting scene history with ${threadData.sceneHistory.length} scenes`);
         setSceneHistory(threadData.sceneHistory);
+      } else {
+        // If no scene history in thread data, try to fetch it directly
+        fetchSceneHistory();
       }
     } catch (error) {
       console.error("Error fetching thread data:", error);
     }
-  }, []);
+  }, [fetchSceneHistory]);
   
   // Effect to load thread from localStorage on first mount
   useEffect(() => {
     const savedThreadId = localStorage.getItem('animationThreadId');
     if (savedThreadId) {
+      console.log(`Loaded thread ID from localStorage: ${savedThreadId}`);
       setThreadId(savedThreadId);
       threadIdRef.current = savedThreadId;
       
       // Fetch the thread data
       fetchThreadData(savedThreadId).catch(console.error);
+    } else {
+      console.log("No thread ID found in localStorage");
     }
   }, [fetchThreadData]);
   
@@ -368,7 +397,7 @@ export function useAnimationStream() {
       const initialMessage: MessageType = {
         id: uuidv4(),
         type: "ai",
-        content: `I'm generating a 3D animation based on your request: '${prompt}'. This might take a moment...`
+        content: `I'm working on your request: '${prompt}'. This might take a moment...`
       };
       
       // Add this prompt to our set of human messages so we don't duplicate it
@@ -422,16 +451,20 @@ export function useAnimationStream() {
         throw new Error(`Server error: ${response.status} ${errorText}`);
       }
       
-      // If this is a new thread, save the thread ID from the URL or Location header
-      if (!currentThreadId) {
-        // First try to get it from the location header
-        const locationHeader = response.headers.get('Location');
-        let newThreadId: string | null = null;
+      // Check for threadId in response headers
+      const responseThreadId = response.headers.get('X-Thread-ID');
+      const locationHeader = response.headers.get('Location');
+      
+      // If this is a new thread or we don't have a thread ID yet, save the thread ID
+      if (!currentThreadId || currentThreadId === 'new') {
+        // First try to get it from the X-Thread-ID header
+        let newThreadId: string | null = responseThreadId;
         
-        if (locationHeader) {
+        // If not available, try Location header
+        if (!newThreadId && locationHeader) {
           const locationParts = locationHeader.split('/');
           newThreadId = locationParts[locationParts.length - 1];
-        } else if (response.url) {
+        } else if (!newThreadId && response.url) {
           // Fallback to the URL
           const urlParts = response.url.split('/');
           newThreadId = urlParts[urlParts.length - 1];
@@ -443,7 +476,11 @@ export function useAnimationStream() {
           threadIdRef.current = newThreadId;
           // Save to localStorage for persistence across refreshes
           localStorage.setItem('animationThreadId', newThreadId);
+        } else {
+          console.warn("Could not determine thread ID from response");
         }
+      } else {
+        console.log(`Using existing thread ID: ${currentThreadId}`);
       }
       
       // Handle streaming response
@@ -502,7 +539,15 @@ export function useAnimationStream() {
       }
       
       console.log("Completed processing animation stream");
-      console.log("Final signedUrl:", signedUrl ? "Present" : "Not present");
+      console.log("Final signedUrl:", signedUrl ? signedUrl.substring(0, 20) + "..." : "Not present");
+      console.log("Final threadId:", threadIdRef.current);
+      
+      // Fetch scene history after animation is generated
+      if (threadIdRef.current) {
+        setTimeout(() => {
+          fetchSceneHistory();
+        }, 500);
+      }
       
       setIsLoading(false);
       currentPromptRef.current = null;
@@ -529,7 +574,7 @@ export function useAnimationStream() {
         setMessages(prev => [...prev, errorMessage]);
       }
     }
-  }, [handleEvent, getBaseUrl, signedUrl, isDuplicateMessage]);
+  }, [handleEvent, getBaseUrl, signedUrl, isDuplicateMessage, fetchSceneHistory]);
   
   // Function to stop the generation
   const stopGeneration = useCallback(() => {
@@ -553,42 +598,51 @@ export function useAnimationStream() {
   }, [isDuplicateMessage]);
   
   // Function to clear chat history and start a new conversation
-  const clearConversation = useCallback(() => {
-    setMessages([]);
-    setSignedUrl(null);
-    setStatus('');
-    setIsError(false);
-    setErrorMessage('');
-    setThreadId(null);
-    threadIdRef.current = null;
-    currentPromptRef.current = null;
-    
-    // Clear message tracking
-    messageIdsRef.current.clear();
-    humanMessageContentsRef.current.clear();
-    aiMessageContentsRef.current.clear();
-    
-    localStorage.removeItem('animationThreadId');
-    
-    // Clear scene state
-    setSceneState(undefined);
-    setSceneHistory([]);
-  }, []);
-  
-  // Function to fetch scene history for the current thread
-  const fetchSceneHistory = useCallback(async () => {
-    if (!threadIdRef.current || !agentClientRef.current) return;
+  const clearConversation = useCallback(async () => {
+    console.log("Clearing conversation and thread data");
     
     try {
-      const response = await agentClientRef.current.getSceneHistory(threadIdRef.current);
-      
-      if (response.history && Array.isArray(response.history)) {
-        setSceneHistory(response.history);
+      // If we have an existing thread ID, tell the server to delete it
+      if (threadIdRef.current) {
+        try {
+          await fetch(`${getBaseUrl()}/api/thread/${threadIdRef.current}`, {
+            method: 'DELETE',
+          });
+          console.log(`Deleted thread ${threadIdRef.current} on the server`);
+        } catch (err) {
+          console.error("Error deleting thread on server:", err);
+          // Continue with local cleanup even if server deletion fails
+        }
       }
+      
+      setMessages([]);
+      setSignedUrl(null);
+      setStatus('');
+      setIsError(false);
+      setErrorMessage('');
+      
+      // Important: Clear thread ID in both state and ref
+      setThreadId(null);
+      threadIdRef.current = null;
+      currentPromptRef.current = null;
+      
+      // Clear message tracking
+      messageIdsRef.current.clear();
+      humanMessageContentsRef.current.clear();
+      aiMessageContentsRef.current.clear();
+      
+      // Remove from localStorage
+      localStorage.removeItem('animationThreadId');
+      
+      // Clear scene state
+      setSceneState(undefined);
+      setSceneHistory([]);
+      
+      console.log("Conversation and thread data cleared");
     } catch (error) {
-      console.error("Error fetching scene history:", error);
+      console.error("Error during conversation clearing:", error);
     }
-  }, []);
+  }, [getBaseUrl]);
   
   // Function to analyze edits using the AgentClient
   const analyzeSceneEdit = useCallback(async (prompt: string) => {
