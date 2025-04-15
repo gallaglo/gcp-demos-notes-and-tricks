@@ -35,7 +35,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS", "PUT"],
     allow_headers=["*"],
-    expose_headers=["Content-Type"],
+    expose_headers=["Content-Type", "X-Thread-ID", "Location"],
 )
 
 # Initialize scene manager
@@ -77,7 +77,7 @@ async def analyze_edit_request(request: SceneEditRequest):
         
         # Get LLM for analysis
         from animation_graph import get_llm
-        llm = get_llm("gemini-2.0-pro-001")  # Use more capable model for parsing
+        llm = get_llm("gemini-2.0-flash-001")
         
         # Send request to LLM
         response = llm.invoke(mcp_prompt)
@@ -136,6 +136,23 @@ async def process_thread_messages(thread_id: str,
         messages (List[Dict]): List of message objects
     """
     try:
+        # Debug: Check if thread_id exists and validate scene
+        logger.info(f"Processing thread messages for thread_id: {thread_id}")
+        
+        # Debug: Check if scene exists for this thread
+        current_scene = scene_manager.get_current_scene_for_thread(thread_id)
+        if current_scene:
+            logger.info(f"Found existing scene for thread {thread_id}: {current_scene.get('id', 'unknown')}")
+        else:
+            logger.info(f"No existing scene found for thread {thread_id}")
+            
+        # Debug: Check scene history
+        scene_history = scene_manager.get_thread_scene_history(thread_id)
+        if scene_history:
+            logger.info(f"Thread {thread_id} has {len(scene_history)} scenes in history")
+        else:
+            logger.info(f"Thread {thread_id} has no scene history")
+            
         # Initialize if this is a new thread
         if thread_id not in active_threads:
             active_threads[thread_id] = {
@@ -317,14 +334,50 @@ async def handle_thread_request(
     logger.info(f"Received thread request for thread: {thread_id}")
     
     # Create thread ID if not provided
+    original_thread_id = thread_id
     if thread_id == "new":
         thread_id = str(uuid4())
         logger.info(f"Created new thread with ID: {thread_id}")
+    else:
+        logger.info(f"Using existing thread ID: {thread_id}")
+    
+    # Ensure thread mapping dictionary is loaded 
+    try:
+        # Force reload thread mappings from storage before proceeding
+        scene_manager.thread_scenes = scene_manager._load_thread_scenes()
+        scene_manager.debug_thread_scenes()
+    except Exception as e:
+        logger.error(f"Error loading thread mappings: {str(e)}")
+        
+    # Now look for existing scene
+    current_scene = scene_manager.get_current_scene_for_thread(thread_id)
+    if current_scene:
+        logger.info(f"Found existing scene for thread {thread_id}: {current_scene.get('id', 'unknown')}")
+        # This is a modification request, force the message to be treated as such
+        if len(request.messages) > 0 and request.messages[-1].get("type") == "human":
+            # Prefix the latest message with a modification marker
+            latest_message = request.messages[-1]
+            if not latest_message.get("content", "").startswith("MODIFY:"):
+                latest_message["content"] = f"MODIFY: {latest_message.get('content', '')}"
+                logger.info(f"Modified message content to indicate edit request: {latest_message.get('content', '')}")
+    else:
+        logger.info(f"No existing scene found for thread {thread_id}")
+    
+    # Create headers dict with required headers
+    headers = {
+        # Include the thread ID in the response headers for client awareness
+        "X-Thread-ID": thread_id
+    }
+    
+    # Only add Location header for new threads
+    if original_thread_id == "new":
+        headers["Location"] = f"/api/thread/{thread_id}"
     
     # Return a streaming response
     return StreamingResponse(
         stream_thread_events(thread_id, request.messages),
-        media_type="text/event-stream"
+        media_type="text/event-stream",
+        headers=headers
     )
 
 async def stream_thread_events(thread_id: str, messages: List[Dict[str, Any]]) -> AsyncGenerator[str, None]:
@@ -342,23 +395,83 @@ async def stream_thread_events(thread_id: str, messages: List[Dict[str, Any]]) -
 @app.get("/thread/{thread_id}")
 async def get_thread(thread_id: str):
     """Get the current state of a thread."""
+    logger.info(f"Getting thread state for thread: {thread_id}")
+    
+    # Reload thread mappings from storage
+    try:
+        scene_manager.thread_scenes = scene_manager._load_thread_scenes()
+    except Exception as e:
+        logger.error(f"Error loading thread mappings: {str(e)}")
+    
     if thread_id not in active_threads:
+        logger.warning(f"Thread {thread_id} not found in active_threads")
+        
+        # Check if thread exists in scene manager even if not in active_threads
+        current_scene = scene_manager.get_current_scene_for_thread(thread_id)
+        if current_scene:
+            logger.info(f"Thread {thread_id} found in scene manager but not in active_threads")
+            # Initialize thread data with the scene
+            thread_data = {
+                "messages": [],
+                "status": "completed",
+                "signedUrl": current_scene.get("glbUrl"),
+                "sceneState": current_scene
+            }
+            
+            # Add to active_threads for future reference
+            active_threads[thread_id] = thread_data
+            
+            return thread_data
+            
         raise HTTPException(status_code=404, detail=f"Thread {thread_id} not found")
     
     # Get thread data
     thread_data = active_threads[thread_id]
+    logger.info(f"Found thread {thread_id} in active_threads with status: {thread_data.get('status', 'unknown')}")
     
     # Get scene state if available
     current_scene = scene_manager.get_current_scene_for_thread(thread_id)
     if current_scene:
+        logger.info(f"Found scene {current_scene.get('id')} for thread {thread_id}")
         thread_data["sceneState"] = current_scene
+    else:
+        logger.info(f"No scene found for thread {thread_id}")
     
     # Get scene history if available
     scene_history = scene_manager.get_thread_scene_history(thread_id)
     if scene_history:
+        logger.info(f"Found {len(scene_history)} scenes in history for thread {thread_id}")
         thread_data["sceneHistory"] = scene_history
     
     return thread_data
+
+@app.delete("/thread/{thread_id}")
+async def delete_thread(thread_id: str):
+    """Delete a thread and its associated resources."""
+    logger.info(f"Deleting thread: {thread_id}")
+    
+    # Handle special case for deleting all threads
+    if thread_id == "all":
+        # Empty the active_threads dictionary
+        active_threads.clear()
+        
+        # We don't delete scene files - just the mappings
+        # Clear the thread_scenes dictionary
+        scene_manager.thread_scenes = {}
+        scene_manager._save_thread_scenes()
+        
+        return {"success": True, "message": "All threads deleted"}
+    
+    # Delete the specific thread
+    if thread_id in active_threads:
+        del active_threads[thread_id]
+    
+    # Delete thread from scene manager
+    if thread_id in scene_manager.thread_scenes:
+        del scene_manager.thread_scenes[thread_id]
+        scene_manager._save_thread_scenes()
+    
+    return {"success": True}
 
 @app.options("/{path:path}")
 async def preflight_handler(request: Request):

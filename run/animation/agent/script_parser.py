@@ -21,28 +21,44 @@ class ScriptParser:
         
     def parse(self) -> Dict[str, Any]:
         """Parse script and extract scene state"""
-        # Extract frame settings
-        self._extract_frame_settings()
-        
-        # Extract objects
-        self._extract_objects()
-        
-        # Extract animations
-        self._extract_animations()
-        
-        # Extract world settings
-        self._extract_world_settings()
-        
-        # Build the scene state
-        scene_state = {
-            "id": str(uuid.uuid4()),
-            "objects": self.objects,
-            "settings": self.settings,
-            "description": self._extract_description(),
-            "createdAt": "",  # Will be set when saving
-        }
-        
-        return scene_state
+        try:
+            # Extract frame settings
+            self._extract_frame_settings()
+            
+            # Extract objects
+            self._extract_objects()
+            
+            # Extract animations
+            self._extract_animations()
+            
+            # Extract world settings
+            self._extract_world_settings()
+            
+            # Build the scene state
+            scene_state = {
+                "id": str(uuid.uuid4()),
+                "objects": self.objects,
+                "settings": self.settings,
+                "description": self._extract_description(),
+                "createdAt": "",  # Will be set when saving
+            }
+            
+            return scene_state
+        except Exception as e:
+            logger.error(f"Error parsing script: {str(e)}")
+            # Return a minimal valid scene state on error
+            return {
+                "id": str(uuid.uuid4()),
+                "objects": [],
+                "settings": {
+                    "frameStart": 1,
+                    "frameEnd": 250,
+                    "fps": 25,
+                    "backgroundColor": [0.05, 0.05, 0.05]
+                },
+                "description": "Fallback scene due to parsing error",
+                "createdAt": ""
+            }
     
     def _extract_frame_settings(self):
         """Extract frame range and FPS settings"""
@@ -316,30 +332,36 @@ class ScriptParser:
     
     def _parse_vector(self, vector_str: str) -> List[float]:
         """Parse a vector string into a list of floats"""
-        # Handle expressions like 'radians(45)' by evaluating them
-        values = []
-        components = vector_str.split(',')
         
-        for comp in components:
-            comp = comp.strip()
-            try:
-                # Handle radians() function
-                if 'radians' in comp:
-                    angle_match = re.search(r'radians\(([^)]+)\)', comp)
-                    if angle_match:
-                        angle = float(angle_match.group(1))
-                        rad_value = angle * 3.14159 / 180.0
-                        values.append(rad_value)
+        try:
+            # Handle expressions like 'radians(45)' by evaluating them
+            values = []
+            components = vector_str.split(',')
+            
+            for comp in components:
+                comp = comp.strip()
+                try:
+                    # Handle radians() function
+                    if 'radians' in comp:
+                        angle_match = re.search(r'radians\(([^)]+)\)', comp)
+                        if angle_match:
+                            angle = float(angle_match.group(1))
+                            rad_value = angle * 3.14159 / 180.0
+                            values.append(rad_value)
+                        else:
+                            values.append(0.0)
                     else:
-                        values.append(0.0)
-                else:
-                    # Normal float value
-                    values.append(float(comp))
-            except ValueError:
-                # If we can't parse it, use 0
-                values.append(0.0)
-        
-        return values
+                        # Normal float value
+                        values.append(float(comp))
+                except ValueError:
+                    # If we can't parse it, use 0
+                    values.append(0.0)
+            
+            return values
+        except Exception as e:
+            # Return a default vector on error
+            logger.error(f"Error parsing vector string '{vector_str}': {str(e)}")
+            return [0.0, 0.0, 0.0]
     
     def _extract_description(self) -> str:
         """Extract or generate a description of the scene"""

@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import uuid
 from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
 from script_parser import ScriptParser, generate_script_from_scene_state
@@ -51,7 +52,7 @@ class SceneManager:
             logger.error(f"Error saving thread mappings: {e}")
     
     @lru_cache(maxsize=1)
-    def get_llm(self, model_name="gemini-2.0-pro-001"):
+    def get_llm(self, model_name="gemini-2.0-flash-001"):
         """Get an LLM instance with caching to avoid repeated initialization"""
         try:
             llm = ChatVertexAI(
@@ -65,6 +66,25 @@ class SceneManager:
             logger.error(f"Failed to initialize LLM: {str(e)}")
             raise
     
+    def debug_thread_scenes(self):
+        """Debug method to print all thread scenes"""
+        logger.info(f"Thread mappings: {json.dumps(self.thread_scenes, indent=2)}")
+        
+    def debug_scene_state(self, scene_id: str):
+        """Debug method to print a scene state"""
+        scene_file = os.path.join(self.storage_dir, f"{scene_id}.json")
+        if os.path.exists(scene_file):
+            try:
+                with open(scene_file, "r") as f:
+                    scene_data = json.load(f)
+                    logger.info(f"Scene {scene_id} exists with {len(scene_data.get('objects', []))} objects")
+                    return True
+            except Exception as e:
+                logger.error(f"Error loading scene {scene_id}: {e}")
+        else:
+            logger.info(f"Scene file does not exist: {scene_file}")
+        return False
+
     def extract_scene_from_script(self, script: str, prompt: str, thread_id: str) -> Dict[str, Any]:
         """
         Parse a Blender script to extract scene state and save it
@@ -77,41 +97,132 @@ class SceneManager:
         Returns:
             Dict[str, Any]: The extracted scene state
         """
-        parser = ScriptParser(script)
-        scene_state = parser.parse()
+        logger.info(f"Extracting scene from script for thread {thread_id}")
         
-        # Add metadata
-        scene_state["description"] = prompt
-        scene_state["createdAt"] = datetime.now().isoformat()
-        
-        # If we have previous scene for this thread, link them
-        if thread_id in self.thread_scenes:
-            previous_scene_id = self.thread_scenes[thread_id].get("currentSceneId")
-            if previous_scene_id:
-                scene_state["derivedFrom"] = previous_scene_id
-        
-        # Save the scene state
-        self._save_scene_state(scene_state)
-        
-        # Update thread mapping
-        if thread_id not in self.thread_scenes:
-            self.thread_scenes[thread_id] = {
-                "threadId": thread_id,
-                "sceneHistory": []
+        try:
+            # Pre-process the script to fix common issues that cause parsing errors
+            fixed_script = self._preprocess_script(script)
+            
+            # Use the parser to extract scene state
+            parser = ScriptParser(fixed_script)
+            scene_state = parser.parse()
+            
+            # Add metadata
+            scene_state["description"] = prompt
+            scene_state["createdAt"] = datetime.now().isoformat()
+            
+            # If we have previous scene for this thread, link them
+            if thread_id in self.thread_scenes:
+                previous_scene_id = self.thread_scenes[thread_id].get("currentSceneId")
+                if previous_scene_id:
+                    scene_state["derivedFrom"] = previous_scene_id
+                    logger.info(f"Linking new scene to previous scene {previous_scene_id}")
+            
+            # Save the scene state
+            self._save_scene_state(scene_state)
+            logger.info(f"Saved scene state with ID: {scene_state['id']}")
+            
+            # Update thread mapping
+            if thread_id not in self.thread_scenes:
+                logger.info(f"Creating new thread mapping for thread {thread_id}")
+                self.thread_scenes[thread_id] = {
+                    "threadId": thread_id,
+                    "sceneHistory": []
+                }
+            
+            # Add to history if not already there
+            if scene_state["id"] not in self.thread_scenes[thread_id].get("sceneHistory", []):
+                self.thread_scenes[thread_id]["sceneHistory"] = \
+                    self.thread_scenes[thread_id].get("sceneHistory", []) + [scene_state["id"]]
+                logger.info(f"Added scene {scene_state['id']} to thread history")
+            
+            # Update current scene
+            self.thread_scenes[thread_id]["currentSceneId"] = scene_state["id"]
+            logger.info(f"Set current scene for thread {thread_id} to {scene_state['id']}")
+            
+            # Save thread mappings
+            self._save_thread_scenes()
+            logger.info(f"Saved thread mappings")
+            
+            # Debug: Verify thread mapping was saved correctly
+            self.debug_thread_scenes()
+            
+            return scene_state
+            
+        except Exception as e:
+            error_msg = f"Error extracting scene from script: {str(e)}"
+            logger.error(error_msg)
+            
+            # Create a simple fallback scene if extraction fails
+            fallback_scene = {
+                "id": str(uuid.uuid4()),
+                "objects": [],
+                "settings": {
+                    "frameStart": 1,
+                    "frameEnd": 250,
+                    "fps": 25,
+                    "backgroundColor": [0.05, 0.05, 0.05]
+                },
+                "description": prompt,
+                "createdAt": datetime.now().isoformat(),
             }
-        
-        # Add to history if not already there
-        if scene_state["id"] not in self.thread_scenes[thread_id].get("sceneHistory", []):
+            
+            # Save the fallback scene
+            self._save_scene_state(fallback_scene)
+            logger.info(f"Saved fallback scene with ID: {fallback_scene['id']}")
+            
+            # Update thread mapping
+            if thread_id not in self.thread_scenes:
+                logger.info(f"Creating new thread mapping for thread {thread_id}")
+                self.thread_scenes[thread_id] = {
+                    "threadId": thread_id,
+                    "sceneHistory": []
+                }
+            
+            # Add to history
             self.thread_scenes[thread_id]["sceneHistory"] = \
-                self.thread_scenes[thread_id].get("sceneHistory", []) + [scene_state["id"]]
+                self.thread_scenes[thread_id].get("sceneHistory", []) + [fallback_scene["id"]]
+            
+            # Update current scene
+            self.thread_scenes[thread_id]["currentSceneId"] = fallback_scene["id"]
+            
+            # Save thread mappings
+            self._save_thread_scenes()
+            
+            return fallback_scene
         
-        # Update current scene
-        self.thread_scenes[thread_id]["currentSceneId"] = scene_state["id"]
+    def _preprocess_script(self, script: str) -> str:
+        """
+        Pre-process the script to fix common issues that cause parsing errors
         
-        # Save thread mappings
-        self._save_thread_scenes()
-        
-        return scene_state
+        Args:
+            script (str): The original Blender script
+            
+        Returns:
+            str: The fixed script
+        """
+        try:
+            # Fix unbalanced parentheses by making sure to replace incomplete function calls
+            # This addresses the "unbalanced parenthesis at position 116" error
+            
+            # Replace incomplete or malformed radians() calls
+            script = re.sub(r'radians\s*\([^)]*$', 'radians(0)', script)
+            
+            # Fix other common issues
+            script = script.replace('bpy.context.scene.objects.link(', 'bpy.context.scene.collection.objects.link(')
+            script = script.replace('.rotation =', '.rotation_euler =')
+            
+            # Fix any case where there are three parameters to bpy.data.objects.new
+            script = re.sub(
+                r'bpy\.data\.objects\.new\([\'"]([^\'"]+)[\'"],\s*[\'"]([^\'"]+)[\'"],\s*([^)]+)\)', 
+                r'bpy.data.objects.new("\1", \3)', 
+                script
+            )
+            
+            return script
+        except Exception as e:
+            logger.error(f"Error preprocessing script: {str(e)}")
+            return script  # Return original script if preprocessing fails
     
     def _save_scene_state(self, scene_state: Dict[str, Any]):
         """Save a scene state to disk"""
@@ -138,14 +249,27 @@ class SceneManager:
     
     def get_current_scene_for_thread(self, thread_id: str) -> Optional[Dict[str, Any]]:
         """Get the current scene state for a thread"""
+        logger.info(f"Looking for scene for thread {thread_id}")
+        logger.info(f"Available threads: {list(self.thread_scenes.keys())}")
+        
         if thread_id not in self.thread_scenes:
+            logger.info(f"Thread {thread_id} not found in thread_scenes")
             return None
         
         scene_id = self.thread_scenes[thread_id].get("currentSceneId")
         if not scene_id:
+            logger.info(f"No currentSceneId for thread {thread_id}")
             return None
         
-        return self.get_scene_state(scene_id)
+        logger.info(f"Found currentSceneId {scene_id} for thread {thread_id}")
+        scene_state = self.get_scene_state(scene_id)
+        
+        if scene_state:
+            logger.info(f"Successfully retrieved scene state for {scene_id}")
+        else:
+            logger.info(f"Failed to get scene state for {scene_id}")
+        
+        return scene_state
     
     def get_thread_scene_history(self, thread_id: str) -> List[Dict[str, Any]]:
         """Get the scene history for a thread"""
@@ -185,58 +309,157 @@ class SceneManager:
         current_scene = self.get_current_scene_for_thread(thread_id)
         if not current_scene:
             # No existing scene, return empty string to generate from scratch
+            logger.error(f"No existing scene found for thread {thread_id}")
             return ""
         
-        # Create a modified copy of the scene
-        modified_scene = dict(current_scene)
-        modified_scene["id"] = f"modified_{int(time.time())}"  # New ID
-        modified_scene["description"] = prompt
-        modified_scene["createdAt"] = datetime.now().isoformat()
-        modified_scene["derivedFrom"] = current_scene["id"]
-        
-        # Make the requested modifications
-        if object_changes:
-            self._apply_object_changes(modified_scene, object_changes)
-        
-        if remove_object_ids:
-            self._remove_objects(modified_scene, remove_object_ids)
-        
-        if add_objects:
-            self._add_objects(modified_scene, add_objects)
-        
-        # Generate a script from the modified scene
-        return generate_script_from_scene_state(modified_scene)
-    
+        try:
+            # Create a modified copy of the scene
+            modified_scene = dict(current_scene)
+            modified_scene["id"] = str(uuid.uuid4())  # New ID
+            modified_scene["description"] = prompt
+            modified_scene["createdAt"] = datetime.now().isoformat()
+            modified_scene["derivedFrom"] = current_scene.get("id", "")
+            
+            # Initialize objects array if it doesn't exist
+            if "objects" not in modified_scene:
+                modified_scene["objects"] = []
+                
+            # Make sure all required fields exist
+            if "settings" not in modified_scene:
+                modified_scene["settings"] = {
+                    "frameStart": 1,
+                    "frameEnd": 250,
+                    "fps": 25,
+                    "backgroundColor": [0.05, 0.05, 0.05]
+                }
+                
+            # Make the requested modifications
+            if object_changes:
+                self._apply_object_changes(modified_scene, object_changes)
+            
+            if remove_object_ids:
+                self._remove_objects(modified_scene, remove_object_ids)
+            
+            if add_objects:
+                # Check that each add_object has an ID, otherwise generate one
+                for obj in add_objects:
+                    if "id" not in obj or not obj["id"]:
+                        obj["id"] = str(uuid.uuid4())
+                        
+                    # Ensure other required fields exist
+                    if "position" not in obj:
+                        obj["position"] = [0, 0, 0]
+                    if "rotation" not in obj:
+                        obj["rotation"] = [0, 0, 0]
+                    if "scale" not in obj:
+                        obj["scale"] = [1, 1, 1]
+                        
+                self._add_objects(modified_scene, add_objects)
+            
+            # Generate a script from the modified scene
+            logger.info(f"Generating script for modified scene with {len(modified_scene.get('objects', []))} objects")
+            return generate_script_from_scene_state(modified_scene)
+            
+        except Exception as e:
+            logger.error(f"Error generating script with modifications: {str(e)}")
+            # Return empty string to fall back to default script generation
+            return ""
+            
     def _apply_object_changes(self, scene: Dict[str, Any], changes: Dict[str, Any]):
         """Apply changes to objects in the scene"""
-        for obj_id, obj_changes in changes.items():
-            # Find the object
-            for i, obj in enumerate(scene["objects"]):
-                if obj["id"] == obj_id:
-                    # Apply changes
-                    for key, value in obj_changes.items():
-                        if key in ["position", "rotation", "scale", "material", "properties"]:
-                            if isinstance(value, dict) and isinstance(obj.get(key, {}), dict):
-                                # Merge dictionaries for nested properties
-                                obj[key] = {**obj.get(key, {}), **value}
-                            else:
-                                obj[key] = value
-                    break
-    
+        try:
+            # Ensure objects exist
+            if "objects" not in scene:
+                scene["objects"] = []
+                return
+                
+            for obj_id, obj_changes in changes.items():
+                # Find the object
+                found = False
+                for i, obj in enumerate(scene["objects"]):
+                    if obj.get("id") == obj_id:
+                        found = True
+                        # Apply changes
+                        for key, value in obj_changes.items():
+                            if key in ["position", "rotation", "scale", "material", "properties"]:
+                                if isinstance(value, dict) and isinstance(obj.get(key, {}), dict):
+                                    # Merge dictionaries for nested properties
+                                    obj[key] = {**obj.get(key, {}), **value}
+                                else:
+                                    obj[key] = value
+                        break
+                        
+                # Log if object wasn't found
+                if not found:
+                    logger.warning(f"Object with ID {obj_id} not found in scene when applying changes")
+        except Exception as e:
+            logger.error(f"Error applying object changes: {str(e)}")
+
     def _remove_objects(self, scene: Dict[str, Any], object_ids: List[str]):
         """Remove objects from the scene"""
-        scene["objects"] = [obj for obj in scene["objects"] if obj["id"] not in object_ids]
-    
+        try:
+            # Ensure objects exist
+            if "objects" not in scene:
+                scene["objects"] = []
+                return
+                
+            scene["objects"] = [obj for obj in scene["objects"] if obj.get("id") not in object_ids]
+        except Exception as e:
+            logger.error(f"Error removing objects: {str(e)}")
+
     def _add_objects(self, scene: Dict[str, Any], new_objects: List[Dict[str, Any]]):
         """Add new objects to the scene"""
-        scene["objects"].extend(new_objects)
+        try:
+            # Ensure objects exist
+            if "objects" not in scene:
+                scene["objects"] = []
+                
+            # Make sure each object has the required fields
+            for obj in new_objects:
+                # Generate an ID if missing
+                if "id" not in obj or not obj["id"]:
+                    obj["id"] = str(uuid.uuid4())
+                    
+                # Add default values for required fields if missing
+                if "name" not in obj:
+                    obj["name"] = f"Object_{obj['id'][:8]}"
+                if "type" not in obj:
+                    obj["type"] = "sphere"  # Default type
+                if "position" not in obj:
+                    obj["position"] = [0, 0, 0]
+                if "rotation" not in obj:
+                    obj["rotation"] = [0, 0, 0]
+                if "scale" not in obj:
+                    obj["scale"] = [1, 1, 1]
+                    
+                # Add properties based on type if missing
+                if "properties" not in obj:
+                    if obj["type"] == "sphere":
+                        obj["properties"] = {"radius": 1.0}
+                    elif obj["type"] == "cube":
+                        obj["properties"] = {"size": 2.0}
+                    elif obj["type"] == "cylinder":
+                        obj["properties"] = {"radius": 1.0, "depth": 2.0}
+                    elif obj["type"] == "plane":
+                        obj["properties"] = {"size": 5.0}
+                
+            scene["objects"].extend(new_objects)
+            logger.info(f"Added {len(new_objects)} new objects to scene")
+        except Exception as e:
+            logger.error(f"Error adding objects: {str(e)}")
     
     def update_scene_with_signed_url(self, scene_id: str, signed_url: str):
         """Update a scene with its GLB URL"""
-        scene_state = self.get_scene_state(scene_id)
-        if scene_state:
-            scene_state["glbUrl"] = signed_url
-            self._save_scene_state(scene_state)
+        try:
+            scene_state = self.get_scene_state(scene_id)
+            if scene_state:
+                scene_state["glbUrl"] = signed_url
+                self._save_scene_state(scene_state)
+                logger.info(f"Updated scene {scene_id} with signed URL")
+            else:
+                logger.warning(f"Could not find scene {scene_id} to update with signed URL")
+        except Exception as e:
+            logger.error(f"Error updating scene with signed URL: {str(e)}")
     
     def _generate_object_description(self, obj: Dict[str, Any]) -> str:
         """Generate a human-readable description of an object"""

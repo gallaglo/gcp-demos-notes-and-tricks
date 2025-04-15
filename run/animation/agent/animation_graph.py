@@ -79,96 +79,48 @@ def get_llm(model_name="gemini-2.0-flash-001"):
 
 def analyze_prompt(state: AnimationState) -> AnimationState:
     """
-    Analyze the user prompt to determine if it requires animation generation,
-    modification of an existing animation, or just a conversational response.
+    Determine if we're modifying an existing animation or creating a new one
+    based purely on whether the thread has an existing scene.
     """
     try:
-        # Get the current scene state for this thread if it exists
+        # Check for existing scene for this thread
         current_scene = None
         if state.get("thread_id"):
             current_scene = scene_manager.get_current_scene_for_thread(state["thread_id"])
         
-        # SIMPLIFIED APPROACH: If there's an existing scene for this thread, 
-        # automatically treat it as a modification request
+        # If an existing scene was found, treat as a modification request
         if current_scene:
             logger.info(f"Existing scene found for thread {state.get('thread_id')}. Treating as a modification request.")
+            
+            # Add AI response about modifying the animation to history
+            updated_history = state["history"] + [
+                {"role": "ai", "content": f"I'm modifying the existing animation based on your request: '{state['current_prompt']}'. This might take a moment..."}
+            ]
+            
             return {
                 **state,
                 "prompt": state["current_prompt"],
                 "generation_status": "analyzing_modification",
                 "is_modification": True,
-                "scene_state": current_scene
-            }
-        
-        # If no existing scene, proceed with regular analysis
-        llm = get_llm()
-        
-        # Create the message history for context
-        messages = [
-            SystemMessage(content=CHAT_SYSTEM_PROMPT),
-        ]
-        
-        # Add conversation history
-        for msg in state["history"]:
-            if msg["role"] == "human":
-                messages.append(HumanMessage(content=msg["content"]))
-            else:
-                messages.append(AIMessage(content=msg["content"]))
-        
-        # Standard prompt for new animation vs conversation
-        analysis_prompt = f"""
-        I need to determine if the following user message is requesting a 3D animation to be generated or if it's just regular conversation.
-        
-        User message: "{state['current_prompt']}"
-        
-        If the user is clearly requesting a 3D animation, visual content, or mentioning objects, scenes or animations
-        respond with "GENERATE_ANIMATION: <brief description of what to animate>".
-        
-        If the user is just having a conversation, asking a general question, or not requesting any visual content,
-        respond with "CONVERSATION: <your conversational response to the user>".
-        
-        Only respond with one of these formats. Don't add any explanation.
-        """
-        
-        messages.append(HumanMessage(content=analysis_prompt))
-        
-        # Get response
-        response = llm.invoke(messages)
-        analysis = response.content.strip()
-        
-        logger.info(f"Prompt analysis: {analysis}")
-        
-        # Update state based on analysis
-        if analysis.startswith("GENERATE_ANIMATION:"):
-            return {
-                **state,
-                "prompt": state["current_prompt"],
-                "generation_status": "analyzing",
-                "is_modification": False
-            }
-        elif analysis.startswith("CONVERSATION:"):
-            # Extract conversation response (everything after "CONVERSATION:")
-            conversation_response = analysis[len("CONVERSATION:"):].strip()
-            
-            # Update history with the AI response
-            updated_history = state["history"] + [
-                {"role": "ai", "content": conversation_response}
-            ]
-            
-            return {
-                **state,
-                "generation_status": "conversation_only",
+                "scene_state": current_scene,
                 "history": updated_history
             }
-        else:
-            # Default to conversation if analysis is unclear
-            return {
-                **state,
-                "generation_status": "conversation_only",
-                "history": state["history"] + [
-                    {"role": "ai", "content": "I'm not sure if you're asking for an animation. Could you clarify what you'd like me to help you with?"}
-                ]
-            }
+        
+        # If no existing scene, this is a new animation generation
+        logger.info(f"No existing scene for thread {state.get('thread_id')}. Treating as new animation request.")
+        
+        # Add AI response about generating the animation to history
+        updated_history = state["history"] + [
+            {"role": "ai", "content": f"I'm generating a new 3D animation based on your request: '{state['current_prompt']}'. This might take a moment..."}
+        ]
+        
+        return {
+            **state,
+            "prompt": state["current_prompt"],
+            "generation_status": "analyzing",
+            "is_modification": False,
+            "history": updated_history
+        }
             
     except Exception as e:
         logger.error(f"Prompt analysis error: {str(e)}")
@@ -191,64 +143,65 @@ def analyze_modification_request(state: AnimationState) -> AnimationState:
                 "generation_status": "error"
             }
         
-        llm = get_llm("gemini-2.0-pro-001")  # Use a more capable model for complex parsing
-        
-        # Prepare the scene description
-        scene_desc = json.dumps(state["scene_state"], indent=2)
-        
-        # Create a prompt for analyzing the modification request
-        messages = [
-            SystemMessage(content=EDIT_ANALYSIS_PROMPT),
-            HumanMessage(content=f"""
-            User's modification request: "{state['prompt']}"
-            
-            Current scene state (JSON):
-            ```
-            {scene_desc}
-            ```
-            
-            Based on the user's request, identify which objects need to be modified and how.
-            Follow the output format instructions exactly.
-            """)
-        ]
-        
-        # Get response
-        response = llm.invoke(messages)
-        analysis = response.content.strip()
-        
-        logger.info(f"Modification analysis: {analysis}")
-        
-        # Try to parse the response as JSON
+        # Use scene_manager to analyze the modification prompt
         try:
-            # Extract the JSON part if wrapped in ```json or ```
-            if "```json" in analysis:
-                json_text = analysis.split("```json")[1].split("```")[0]
-            elif "```" in analysis:
-                json_text = analysis.split("```")[1].split("```")[0]
-            else:
-                json_text = analysis
-                
-            # Parse the changes
-            object_changes = json.loads(json_text)
+            logger.info(f"Analyzing modification request: '{state['prompt']}'")
+            logger.info(f"Current scene has {len(state['scene_state'].get('objects', []))} objects")
             
+            object_changes = scene_manager.analyze_modification_prompt(
+                state["prompt"], 
+                state["scene_state"]
+            )
+            
+            # Log the results
+            changes = object_changes.get("object_changes", {})
+            add_objects = object_changes.get("add_objects", [])
+            remove_ids = object_changes.get("remove_object_ids", [])
+            
+            logger.info(f"Analysis results: Changing {len(changes)} objects, "
+                      f"Adding {len(add_objects)} objects, "
+                      f"Removing {len(remove_ids)} objects")
+            
+            # Ensure all new objects have IDs
+            for obj in add_objects:
+                if "id" not in obj or not obj["id"]:
+                    obj["id"] = str(uuid.uuid4())
+            
+            # Add processed result to state
             return {
                 **state,
                 "object_changes": object_changes,
                 "generation_status": "modification_analyzed"
             }
-        except (json.JSONDecodeError, IndexError) as json_err:
-            logger.error(f"Error parsing modification JSON: {str(json_err)}")
-            logger.error(f"Raw response: {analysis}")
             
-            # Fall back to simple analysis
-            simple_changes = scene_manager.analyze_modification_prompt(
-                state["prompt"], 
-                state["scene_state"]
-            )
+        except Exception as e:
+            logger.error(f"Error in scene_manager.analyze_modification_prompt: {str(e)}")
+            # Create a simple fallback change - add a new planet
+            fallback_changes = {
+                "object_changes": {},
+                "add_objects": [
+                    {
+                        "id": str(uuid.uuid4()),
+                        "name": "New Planet",
+                        "type": "sphere",
+                        "position": [0, 2, 0],
+                        "rotation": [0, 0, 0],
+                        "scale": [1, 1, 1],
+                        "material": {
+                            "color": [0.8, 0.2, 0.2]
+                        },
+                        "properties": {
+                            "radius": 1.0
+                        }
+                    }
+                ],
+                "remove_object_ids": []
+            }
+            logger.info("Using fallback changes due to analysis error")
             
             return {
                 **state,
-                "object_changes": simple_changes,
+                "object_changes": fallback_changes,
                 "generation_status": "modification_analyzed"
             }
             
@@ -466,17 +419,30 @@ def generate_blender_script(state: AnimationState) -> AnimationState:
             # This is a modification to an existing scene
             logger.info(f"Generating script based on scene modification: {state['prompt']}")
             
-            # Get the thread ID and object changes
+            # Get the thread ID
             thread_id = state.get("thread_id", "")
+            
+            # Get object changes from state
             object_changes = state.get("object_changes", {})
+            
+            # Create safer default values if any keys are missing
+            changes = object_changes.get("object_changes", {})
+            add_objects = object_changes.get("add_objects", [])
+            remove_ids = object_changes.get("remove_object_ids", [])
+            
+            # Debug log what we're about to do
+            logger.info(f"Modification details - Thread: {thread_id}")
+            logger.info(f"Changing {len(changes)} objects")
+            logger.info(f"Adding {len(add_objects)} objects")
+            logger.info(f"Removing {len(remove_ids)} objects")
             
             # Generate a script with the specified modifications
             script = scene_manager.generate_script_with_modifications(
                 thread_id=thread_id,
                 prompt=state["prompt"],
-                object_changes=object_changes.get("object_changes", {}),
-                add_objects=object_changes.get("add_objects", []),
-                remove_object_ids=object_changes.get("remove_object_ids", [])
+                object_changes=changes,
+                add_objects=add_objects,
+                remove_object_ids=remove_ids
             )
             
             # If we couldn't generate a modified script, fall back to creating a new one
@@ -488,11 +454,9 @@ def generate_blender_script(state: AnimationState) -> AnimationState:
             logger.info(f"Generating new script from prompt: {state['prompt']}")
             script = script_generator.generate(state["prompt"], state["history"])
         
-        # Add AI response about generating the animation to history
-        action_type = "modifying" if state.get("is_modification", False) else "generating"
-        updated_history = state["history"] + [
-            {"role": "ai", "content": f"I'm {action_type} a 3D animation based on your request: '{state['prompt']}'. This might take a moment..."}
-        ]
+        # We don't need to add AI response here anymore since that's handled in the analyze_prompt
+        # and analyze_modification_request functions
+        updated_history = state["history"]
         
         # Update state
         return {
@@ -531,11 +495,18 @@ def render_animation(state: AnimationState) -> AnimationState:
             "Content-Type": "application/json"
         }
         
+        # Get thread ID - ensure it's included in the request
+        thread_id = state.get("thread_id", "")
+        if not thread_id:
+            logger.warning("No thread_id in state - generating a new one")
+            thread_id = str(uuid.uuid4())
+            state["thread_id"] = thread_id
+        
         # The script is passed to your existing Cloud Run service
         payload = {
             "prompt": state["prompt"],
             "script": state["blender_script"],
-            "thread_id": state.get("thread_id", "")  # Include the thread ID
+            "thread_id": thread_id  # Include the thread ID
         }
         
         # Log the first 200 characters of the script for debugging (avoid logging huge scripts)
@@ -567,8 +538,25 @@ def render_animation(state: AnimationState) -> AnimationState:
                 "history": updated_history
             }
         
-        # Parse response
-        result = response.json()
+        # Parse response - add robust error handling for JSON parsing
+        try:
+            result = response.json()
+        except json.JSONDecodeError as e:
+            # Log the error and the problematic response text
+            error_message = f"Invalid JSON response from Blender service: {e}. Response: {response.text[:200]}..."
+            logger.error(error_message)
+            
+            # Add user-friendly error message to history
+            updated_history = state["history"] + [
+                {"role": "ai", "content": f"I encountered an error while rendering the animation: Invalid response format from rendering service."}
+            ]
+            
+            return {
+                **state,
+                "error": error_message,
+                "generation_status": "error",
+                "history": updated_history
+            }
         
         # Check for error in response
         if "error" in result and result["error"]:
@@ -584,24 +572,52 @@ def render_animation(state: AnimationState) -> AnimationState:
                 "history": updated_history
             }
         
-        # Success case - get signed URL
+        # Success case
+        logger.info(f"Successfully rendered animation for thread {thread_id}")
+        
         # Extract scene state information if available
         scene_id = result.get("scene_id", "")
+        signed_url = result.get("signed_url", "")
         
-        # Store the scene state and update with the signed URL
-        if scene_id and state.get("thread_id") and result.get("signed_url"):
-            # Extract scene state from script if it was parsed by the blender service
-            if result.get("scene_state"):
-                scene_state = result["scene_state"]
-                # Store in our scene manager
-                scene_manager.extract_scene_from_script(
+        if not signed_url:
+            logger.error("No signed_url in Blender service response")
+            return {
+                **state,
+                "error": "No signed URL returned from rendering service",
+                "generation_status": "error",
+                "history": state["history"] + [
+                    {"role": "ai", "content": "I encountered an error while rendering the animation: No signed URL returned"}
+                ]
+            }
+        
+        logger.info(f"Got signed URL from Blender service: {signed_url[:50]}...")
+        
+        # Store the scene state - handle scene extraction separately with robust error handling
+        scene_state = None
+        if thread_id:
+            try:
+                # Extract and save scene state from script when rendering succeeds
+                logger.info(f"Extracting and saving scene state for thread {thread_id}")
+                scene_state = scene_manager.extract_scene_from_script(
                     state["blender_script"], 
                     state["prompt"],
-                    state["thread_id"]
+                    thread_id
                 )
+                
+                # Get scene ID from the newly created scene
+                scene_id = scene_state.get("id", scene_id)
+            except Exception as e:
+                logger.error(f"Error in scene extraction, but continuing with animation: {str(e)}")
+                # Don't let scene extraction failure stop the animation from being shown
+                scene_state = None
             
-            # Update the scene with the signed URL
-            scene_manager.update_scene_with_signed_url(scene_id, result["signed_url"])
+            if scene_id:
+                # Update the scene with the signed URL - handle separately
+                try:
+                    logger.info(f"Updating scene {scene_id} with signed URL")
+                    scene_manager.update_scene_with_signed_url(scene_id, signed_url)
+                except Exception as e:
+                    logger.error(f"Error updating scene with URL, but continuing: {str(e)}")
         
         # Customize message based on if this was a modification or new animation
         message = "Your animation is ready! You can see it in the viewer."
@@ -616,16 +632,24 @@ def render_animation(state: AnimationState) -> AnimationState:
         ]
         
         # Get the current scene state for the thread
-        current_scene = None
-        if state.get("thread_id"):
-            current_scene = scene_manager.get_current_scene_for_thread(state["thread_id"])
+        if not scene_state and thread_id:
+            try:
+                logger.info(f"Getting current scene for thread {thread_id}")
+                scene_state = scene_manager.get_current_scene_for_thread(thread_id)
+                if scene_state:
+                    logger.info(f"Found current scene {scene_state.get('id')} for thread {thread_id}")
+                else:
+                    logger.warning(f"No current scene found for thread {thread_id}")
+            except Exception as e:
+                logger.error(f"Error getting scene state, but continuing: {str(e)}")
         
         return {
             **state,
-            "signed_url": result["signed_url"],
+            "signed_url": signed_url,
             "generation_status": "completed",
             "history": updated_history,
-            "scene_state": current_scene
+            "scene_state": scene_state,
+            "thread_id": thread_id  # Ensure thread_id is included in result
         }
     except Exception as e:
         logger.error(f"Render animation error: {str(e)}")
@@ -646,15 +670,10 @@ def router(state: AnimationState) -> str:
     """Route to the next node based on state."""
     if state.get("error"):
         return "end"
-    if state.get("generation_status") == "conversation_only":
-        return "end"
-    # Check for is_modification flag and bypassing analyze_prompt
-    if state.get("is_modification", False) and state.get("generation_status") == "started":
+    if state.get("is_modification", False) and state.get("generation_status") == "analyzing_modification":
         return "analyze_modification"
     if state.get("generation_status") == "analyzing":
         return "generate_script"
-    if state.get("generation_status") == "analyzing_modification":
-        return "analyze_modification"
     if state.get("generation_status") == "modification_analyzed":
         return "generate_script"
     if state.get("generation_status") == "script_generated":
@@ -734,25 +753,23 @@ def run_animation_generation(prompt: str, history: List[Message] = None, thread_
     updated_history = history + [{"role": "human", "content": prompt}]
     
     # Check if there's an existing scene for this thread
+    current_scene = None
     is_modification = False
-    scene_state = {}
+    
     if thread_id:
         current_scene = scene_manager.get_current_scene_for_thread(thread_id)
         if current_scene:
-            # This is an existing thread with a scene, so we'll treat it as a modification
             logger.info(f"Existing scene found for thread {thread_id}. Treating as a modification request.")
             is_modification = True
-            scene_state = current_scene
-            # Set generation_status to skip directly to modification analysis
             generation_status = "analyzing_modification"
         else:
-            generation_status = "started"
+            generation_status = "analyzing"
     else:
-        generation_status = "started"
+        generation_status = "analyzing"
     
     # Initialize the state
     initial_state = AnimationState(
-        prompt=prompt,  # Set the prompt directly instead of empty string
+        prompt=prompt,
         current_prompt=prompt,
         blender_script="",
         generation_status=generation_status,
@@ -760,9 +777,9 @@ def run_animation_generation(prompt: str, history: List[Message] = None, thread_
         error="",
         history=updated_history,
         thread_id=thread_id,
-        scene_state=scene_state,  # Include the scene state if it exists
-        is_modification=is_modification,  # Set based on whether an existing scene was found
-        object_changes={}  # Will be populated during modification analysis
+        scene_state=current_scene or {},
+        is_modification=is_modification,
+        object_changes={}
     )
     
     # Create and run the graph
