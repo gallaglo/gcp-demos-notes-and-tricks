@@ -1,0 +1,11 @@
+# Cloud storage
+google-cloud-storage>=2.18.0,<3.0.0
+# Server
+gunicorn>=21.2.0
+setuptools>=68.2.2
+# MCP Server requirements
+mcp[cli]>=0.1.4
+# HTTP client for service calls
+requests>=2.31.0
+# Utils
+python-dotenv>=1.0.0
