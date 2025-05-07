@@ -1,0 +1,19 @@
+# Binary Authorization policy that only allows images from project's Artifact Registry
+# Replace YOUR_PROJECT_ID with your actual Google Cloud project ID
+# Replace REGION with your Artifact Registry region (e.g., us-central1)
+
+# Whitelist patterns for allowed image repositories
+admissionWhitelistPatterns:
+# This pattern allows all images from your project's Artifact Registry
+- namePattern: REGION-docker.pkg.dev/YOUR_PROJECT_ID/**
+
+# Global policy evaluation settings
+globalPolicyEvaluationMode: ENABLE
+
+# Default rule to block all non-whitelisted images
+defaultAdmissionRule:
+  evaluationMode: ALWAYS_DENY
+  enforcementMode: ENFORCED_BLOCK_AND_AUDIT_LOG
+
+# Reference name for this policy
+name: projects/YOUR_PROJECT_ID/policy
