@@ -2,6 +2,12 @@
 
 This demo shows how to use Binary Authorization (Binauthz) to enforce security policies on container images deployed in a GKE cluster.
 
+## Prerequisites
+
+- Google Cloud SDK installed and configured
+- A Google Cloud project with billing enabled and a default network
+- kubectl installed and configured
+
 ## Steps
 
 1. **Enable the required APIs**:
