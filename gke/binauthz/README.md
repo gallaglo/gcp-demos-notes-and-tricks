@@ -37,7 +37,17 @@ gcloud beta binauthz policy describe
 5. **Create a GKE cluster with Binary Authorization enabled**:
 
 ```bash
-gcloud beta container --project $PROJECT_ID clusters create-auto "demo-cluster" --region $REGION --release-channel "regular" --tier "standard" --enable-ip-access --no-enable-google-cloud-access --network "projects/${PROJECT_ID}/global/networks/default" --subnetwork "projects/${PROJECT_ID}/regions/${PROJECT_ID}/subnetworks/default" --cluster-ipv4-cidr "/17" --binauthz-evaluation-mode=POLICY_BINDINGS_AND_PROJECT_SINGLETON_POLICY_ENFORCE
+gcloud beta container clusters create-auto "demo-cluster" \
+  --project $PROJECT_ID \
+  --region $REGION \
+  --release-channel "regular" \
+  --tier "standard" \
+  --enable-ip-access \
+  --no-enable-google-cloud-access \
+  --network "projects/${PROJECT_ID}/global/networks/default" \
+  --subnetwork "projects/${PROJECT_ID}/regions/${PROJECT_ID}/subnetworks/default" \
+  --cluster-ipv4-cidr "/17" \
+  --binauthz-evaluation-mode=POLICY_BINDINGS_AND_PROJECT_SINGLETON_POLICY_ENFORCE
 ```
 
 6. **Deploy a sample application**:
