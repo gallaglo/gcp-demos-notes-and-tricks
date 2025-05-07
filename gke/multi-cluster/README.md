@@ -79,11 +79,13 @@ kubectl get serviceimports --context us-east1-cluster --namespace demo
 ```
 
 5. Apply the following Gateway manifest to the config cluster, us-west1-cluster.
+
 ```bash
 kubectl apply --context us-west1-cluster -f k8s-manifests/gateway.yaml
 ```
 
 6. Apply the following HTTPRoute manifest to the config cluster, us-west1-cluster.
+
 ```bash
 kubectl apply --context us-west1-cluster -f k8s-manifests/httproute.yaml
 ```
@@ -100,8 +102,8 @@ kubectl describe gateways.gateway.networking.k8s.io external-http --context us-w
 curl http://$(kubectl get gateways.gateway.networking.k8s.io external-http -o=jsonpath="{.status.addresses[0].value}" --context us-west1-cluster --namespace demo)/api/
 ```
 
-
 ## Cleanup
+
 1. Delete GKE Gateway resources first.
 
 ```bash
@@ -132,5 +134,6 @@ kubectl config delete-context us-east1-cluster
 ```
 
 ## TODO
+
 * Remove hardcoded values like project IDs.
 * Add support for HTTPS load balancer with [GKE Gateway](https://cloud.google.com/kubernetes-engine/docs/how-to/secure-gateway).

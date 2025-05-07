@@ -11,7 +11,7 @@ When securing Google Cloud Storage buckets, using both IAM Conditions and VPC Se
 
 ## Security Layers Architecture
 
-```
+```bash
 ┌─────────────────────────────────────────────────────────┐
 │                 VPC Service Controls                    │
 │                                                         │
@@ -84,17 +84,20 @@ VPC Service Controls create a security perimeter around your GCS buckets, preven
 ### Setting Up VPC Service Controls
 
 1. **Enable the Access Context Manager API**:
+
    ```bash
    gcloud services enable accesscontextmanager.googleapis.com
    ```
 
 2. **Create an Access Policy** (if you don't have one already):
+
    ```bash
    gcloud access-context-manager policies create --organization=ORGANIZATION_ID --title="My Access Policy"
    ```
 
 3. **Create an Access Level for Company Devices**:
    Save the following to `access-level.yaml`:
+
    ```yaml
    name: accessPolicies/POLICY_ID/accessLevels/ExampleComDevices
    title: Example.com Company Devices
@@ -108,13 +111,15 @@ VPC Service Controls create a security perimeter around your GCS buckets, preven
        - members:
          - "domain:example.com"
    ```
-   
+
    Apply it with:
+
    ```bash
    gcloud access-context-manager levels create ExampleComDevices --policy=POLICY_ID --yaml-file=access-level.yaml
    ```
 
 4. **Create a Service Perimeter**:
+
    ```bash
    gcloud access-context-manager perimeters create perimeter-example \
      --policy=POLICY_ID \
@@ -125,6 +130,7 @@ VPC Service Controls create a security perimeter around your GCS buckets, preven
 
 5. **Create an Ingress Rule**:
    Save the following to `ingress.yaml`:
+
    ```yaml
    - ingressFrom:
        identityType: ANY_USER_ACCOUNT
@@ -138,8 +144,9 @@ VPC Service Controls create a security perimeter around your GCS buckets, preven
        resources:
        - "*"
    ```
-   
+
    Apply it with:
+
    ```bash
    gcloud access-context-manager perimeters update perimeter-example --policy=POLICY_ID --set-ingress-policies=ingress.yaml
    ```
@@ -147,6 +154,7 @@ VPC Service Controls create a security perimeter around your GCS buckets, preven
 ### Advanced Ingress Rule Example
 
 This example allows:
+
 1. Specific service accounts to access from corporate data centers
 2. Any user account from company devices to query BigQuery
 3. A specific service account to write to Cloud Storage from an authorized VPC network
