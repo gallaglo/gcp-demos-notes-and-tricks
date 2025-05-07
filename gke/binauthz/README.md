@@ -64,6 +64,8 @@ This should fail due to the Binary Authorization policy.
 
 ## Cleanup
 
+Delete the GKE cluster and restore the `ALWAYS_ALLOW` Binary Authorization policy:
+
 ```bash
 gcloud container clusters delete demo-cluster --region $REGION
 sed -i "s/YOUR_PROJECT_ID/$PROJECT_ID/g" binauthz-allow-policy.yaml
