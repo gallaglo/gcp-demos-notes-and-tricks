@@ -2,4 +2,4 @@ globalPolicyEvaluationMode: ENABLE
 defaultAdmissionRule:
   evaluationMode: ALWAYS_ALLOW
   enforcementMode: ENFORCED_BLOCK_AND_AUDIT_LOG
-name: projects/PROJECT_ID/policy
+name: projects/YOUR_PROJECT_ID/policy

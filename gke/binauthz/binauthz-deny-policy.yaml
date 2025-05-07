@@ -5,7 +5,7 @@
 # Whitelist patterns for allowed image repositories
 admissionWhitelistPatterns:
 # This pattern allows all images from your project's Artifact Registry
-- namePattern: gcr.io/YOUR_PROJECT_ID/**
+- namePattern: REGION-docker.pkg.dev/YOUR_PROJECT_ID/**
 
 # Global policy evaluation settings
 globalPolicyEvaluationMode: ENABLE
