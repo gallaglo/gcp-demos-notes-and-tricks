@@ -18,7 +18,7 @@ gcloud services enable \
   binaryauthorization.googleapis.com
 ```
 
-1. **Update placeholders in the policy file**:
+2. **Update placeholders in the policy file**:
 
 ```bash
 # Set your project ID and region
@@ -28,13 +28,13 @@ sed -i "s/YOUR_PROJECT_ID/$PROJECT_ID/g" binauthz-deny-policy.yaml
 sed -i "s/REGION/$REGION/g" binauthz-deny-policy.yaml
 ```
 
-1. **Create the Binary Authorization policy**:
+3. **Create the Binary Authorization policy**:
 
 ```bash
 gcloud beta container binauthz policy import binauthz-deny-policy.yaml
  ```
 
-1. **Create a GKE cluster with Binary Authorization enabled**:
+4. **Create a GKE cluster with Binary Authorization enabled**:
 
 ```bash
 gcloud beta container clusters create-auto "demo-cluster" \
@@ -50,11 +50,11 @@ gcloud beta container clusters create-auto "demo-cluster" \
   --binauthz-evaluation-mode=PROJECT_SINGLETON_POLICY_ENFORCE
 ```
 
-1. **Deploy a sample application**:
+5. **Deploy a sample application**:
 
 Follow the instructions in the [Whereami](https://github.com/gallaglo/whereami) repo to deploy the sample application. Ensure that the image used is compliant with the Binary Authorization policy you created.
 
-1. **Deploy a non-compliant image**:
+6. **Deploy a non-compliant image**:
 
 ```bash
 kubectl run busybox --image=docker.io/library/busybox

@@ -4,7 +4,7 @@ This repo deploys Cloud Run services to two GCP cloud regions and configures a G
 
 If the variable `enable_https` is set to `true`, the load balancer will be configured for HTTPS and will serve traffic at `https://<ip-address>.nip.io`.
 
-## Inputs 
+## Inputs
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
@@ -14,4 +14,4 @@ If the variable `enable_https` is set to `true`, the load balancer will be confi
 | project\_id | GCP Project ID | `string` | `""` | yes |
 | region\_1 | Region of the first Cloud Run service | `string` | `"us-west1"` | no |
 | region\_2 | Region of the second Cloud Run service | `string` | `"us-east1"` | no |
-| service\_name\_prefix | Prefix for the Cloud Run service name | `string` | `"cloud-run"` | no |     
+| service\_name\_prefix | Prefix for the Cloud Run service name | `string` | `"cloud-run"` | no |
