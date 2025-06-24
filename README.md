@@ -25,7 +25,7 @@ A comprehensive repository of demos, code snippets, and implementation patterns 
 
 - Reference architectures for common GCP patterns
 - Production-ready Terraform modules and configurations
-- Best practices implementations following Google Cloud's Well-Architected Framework
+- Best practices implementations following Google Cloud's [Well-Architected Framework](https://cloud.google.com/architecture/framework)
 - Scalable foundation templates for enterprise deployments
 
 ## Prerequisites
@@ -67,7 +67,7 @@ Each demo in this repository is designed with both **learning** and **production
 
 ### 🚀 **Production-Ready Elements**
 
-- Infrastructure as Code (IaC) using Terraform
+- Infrastructure as Code (IaC) using [Terraform](https://developer.hashicorp.com/terraform)
 - Security best practices and principle of least privilege
 - Monitoring, logging, and observability configurations
 - Scalability and high-availability patterns

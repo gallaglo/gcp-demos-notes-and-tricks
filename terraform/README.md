@@ -520,7 +520,7 @@ With Terraform, you describe **what** you want (the end state), not **how** to c
 #### Infrastructure Drift Detection
 
 ```bash
-$ terraform plan
+terraform plan
 ```
 
 This command previews any changes to be made, allowing you to catch:
