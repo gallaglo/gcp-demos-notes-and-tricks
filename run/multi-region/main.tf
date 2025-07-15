@@ -29,6 +29,11 @@ resource "google_cloud_run_v2_service" "default" {
     service_account = module.service_accounts.email
     containers {
       image = var.container_image
+      resources {
+        limits = {
+          memory = "1Gi"
+        }
+      }
       env {
         name  = "PROJECT_ID"
         value = var.project_id
