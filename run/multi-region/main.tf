@@ -14,7 +14,9 @@ module "service_accounts" {
   prefix      = local.service_name_prefix
   description = "Service account for Cloud Run service"
   project_roles = [
-    "roles/aiplatform.user"
+    "roles/aiplatform.user",
+    "roles/compute.viewer",
+    "roles/serviceusage.serviceUsageViewer"
   ]
 }
 
