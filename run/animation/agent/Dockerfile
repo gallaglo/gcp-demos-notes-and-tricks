@@ -7,9 +7,12 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY animation_graph.py .
+COPY adk_main.py .
+COPY adk_agents.py .
+COPY adk_tools.py .
 COPY prompts.py .
 COPY main.py .
+COPY animation_graph.py .
 
-# Command to run the application
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]
+# Command to run the ADK-based application
+CMD ["python", "-m", "uvicorn", "adk_main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]
