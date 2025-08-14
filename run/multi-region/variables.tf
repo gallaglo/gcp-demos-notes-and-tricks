@@ -15,6 +15,13 @@ variable "enable_iap" {
   default     = false
 }
 
+variable "openweather_api_key" {
+  description = "OpenWeather API key"
+  type        = string
+  sensitive   = true
+  default     = "placeholder" # Will be ignored after first apply
+}
+
 variable "project_id" {
   description = "GCP Project ID"
   type        = string

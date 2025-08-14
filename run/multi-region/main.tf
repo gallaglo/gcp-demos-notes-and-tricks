@@ -7,6 +7,12 @@ locals {
   service_name_prefix = trimsuffix(var.service_name_prefix, "-")
 }
 
+# Enable required APIs
+resource "google_project_service" "secretmanager" {
+  project = var.project_id
+  service = "secretmanager.googleapis.com"
+}
+
 module "service_accounts" {
   source       = "terraform-google-modules/service-accounts/google"
   version      = "~> 4.0"
@@ -21,19 +27,43 @@ module "service_accounts" {
     "${var.project_id}=>roles/serviceusage.serviceUsageViewer",
     "${var.project_id}=>roles/logging.logWriter",
     "${var.project_id}=>roles/monitoring.metricWriter",
-    "${var.project_id}=>roles/cloudtrace.agent"
+    "${var.project_id}=>roles/cloudtrace.agent",
+    "${var.project_id}=>roles/secretmanager.secretAccessor"
   ]
+}
+
+# Create the secret for OpenWeather API key
+resource "google_secret_manager_secret" "openweather_api_key" {
+  project   = var.project_id
+  secret_id = "${local.service_name_prefix}-openweather-api-key"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.secretmanager]
+}
+
+# Create a secret version (you'll need to update this with the actual API key)
+# Note: It's recommended to set this manually after creation for security
+resource "google_secret_manager_secret_version" "openweather_api_key" {
+  secret      = google_secret_manager_secret.openweather_api_key.id
+  secret_data = var.openweather_api_key # Define this as a sensitive variable
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
 }
 
 resource "google_cloud_run_v2_service" "default" {
   for_each = toset([var.region_1, var.region_2])
-
   name     = "${local.service_name_prefix}-${each.key}"
   location = each.key
   ingress  = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
 
   template {
     service_account = module.service_accounts.email
+
     containers {
       image = var.container_image
       resources {
@@ -41,12 +71,28 @@ resource "google_cloud_run_v2_service" "default" {
           memory = "1Gi"
         }
       }
+
       env {
         name  = "PROJECT_ID"
         value = var.project_id
       }
+
+      # Add environment variable for the secret
+      env {
+        name = "OPENWEATHER_API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.openweather_api_key.secret_id
+            version = "latest"
+          }
+        }
+      }
     }
   }
+
+  depends_on = [
+    google_secret_manager_secret_version.openweather_api_key
+  ]
 }
 
 # allow unauthenicated invocations of the Cloud Run service
