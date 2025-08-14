@@ -8,15 +8,20 @@ locals {
 }
 
 module "service_accounts" {
-  source      = "terraform-google-modules/service-accounts/google"
-  version     = "~> 4.0"
-  project_id  = var.project_id
-  prefix      = local.service_name_prefix
-  description = "Service account for Cloud Run service"
+  source       = "terraform-google-modules/service-accounts/google"
+  version      = "~> 4.0"
+  project_id   = var.project_id
+  prefix       = local.service_name_prefix
+  names        = ["service"]
+  display_name = "Cloud Run Service Account"
+  description  = "Service Account for ${local.service_name_prefix}"
   project_roles = [
-    "roles/aiplatform.user",
-    "roles/compute.viewer",
-    "roles/serviceusage.serviceUsageViewer"
+    "${var.project_id}=>roles/aiplatform.user",
+    "${var.project_id}=>roles/compute.viewer",
+    "${var.project_id}=>roles/serviceusage.serviceUsageViewer",
+    "${var.project_id}=>roles/logging.logWriter",
+    "${var.project_id}=>roles/monitoring.metricWriter",
+    "${var.project_id}=>roles/cloudtrace.agent"
   ]
 }
 
@@ -62,6 +67,7 @@ resource "google_compute_region_network_endpoint_group" "serverless_neg" {
 
   provider              = google-beta
   region                = each.key
+  project               = var.project_id
   name                  = "${each.key}-serverless-neg"
   network_endpoint_type = "SERVERLESS"
   cloud_run {
