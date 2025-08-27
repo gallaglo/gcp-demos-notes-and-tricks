@@ -80,23 +80,25 @@ COPY --from=builder --chown=blenderuser:blenderuser /blender-4.3.0-linux-x64 /us
 # Switch to non-root user for security
 USER blenderuser
 
-# Install the project into /app
-COPY --chown=blenderuser:blenderuser . /app
 WORKDIR /app
 
-# Allow statements and log messages to immediately appear in the logs
-ENV PYTHONUNBUFFERED=1
-
-# Set environment variables - minimize redundant paths
-ENV PATH="/usr/local/blender:/home/blenderuser/.local/bin:${PATH}" \
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/usr/local/blender:/home/blenderuser/.local/bin:${PATH}" \
     BLENDER_USER_CONFIG=/tmp/blender-config \
     BLENDER_USER_SCRIPTS=/usr/local/blender/4.3/scripts \
     BLENDER_SYSTEM_SCRIPTS=/usr/local/blender/4.3/scripts \
-    XDG_CONFIG_HOME=/tmp/blender-config \
-    PYTHONDONTWRITEBYTECODE=1
+    XDG_CONFIG_HOME=/tmp/blender-config
 
-# Install dependencies
+# Copy dependency files first for better caching
+COPY --chown=blenderuser:blenderuser pyproject.toml ./
+
+# Install dependencies (this layer will be cached unless deps change)
 RUN uv sync
+
+# Copy source code last (this layer rebuilds when code changes)
+COPY --chown=blenderuser:blenderuser . .
 
 EXPOSE 8080
 
