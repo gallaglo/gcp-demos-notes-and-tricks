@@ -57,8 +57,6 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # Install only what's proven to be needed for Blender to run
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
-    libgl1-mesa-dri \
-    libglu1-mesa \
     libxi6 \
     libxfixes3 \
     libxrender1 \
