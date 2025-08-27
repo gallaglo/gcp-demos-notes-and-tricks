@@ -96,4 +96,4 @@ ENV PATH="/usr/local/blender:/home/blenderuser/.local/bin:${PATH}" \
 COPY --chown=blenderuser:blenderuser . .
 
 # Command to run the application
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 app:app
+CMD exec uvicorn app:app --host 0.0.0.0 --port $PORT --workers 1
