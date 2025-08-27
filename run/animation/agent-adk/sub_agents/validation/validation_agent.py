@@ -5,8 +5,8 @@ from .tools.script_validator_tool import (
     fix_common_script_issues, 
     get_validation_status
 )
-from ...config import GENAI_MODEL
-from ...prompts.validation_prompt import VALIDATION_AGENT_PROMPT
+from config import GENAI_MODEL
+from prompts.validation_prompt import VALIDATION_AGENT_PROMPT
 
 # Create the validation agent
 validation_agent = Agent(

@@ -1,8 +1,8 @@
 """Analysis Agent for ADK Animation System"""
 from google.adk.agents import Agent
 from .tools.prompt_analyzer_tool import analyze_user_prompt, get_analysis_result
-from ...config import GENAI_MODEL
-from ...prompts.analysis_prompt import ANALYSIS_AGENT_PROMPT
+from config import GENAI_MODEL
+from prompts.analysis_prompt import ANALYSIS_AGENT_PROMPT
 
 # Create the analysis agent
 analysis_agent = Agent(

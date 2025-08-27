@@ -7,6 +7,9 @@ from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 
+# Import ADK agent components
+from agent import animation_workflow, conversation_agent
+
 # Load environment variables
 load_dotenv()
 
@@ -47,20 +50,36 @@ active_threads = {}
 async def generate_animation(request: AnimationRequest):
     """
     Endpoint to generate an animation from a prompt using ADK agents.
-    
-    Note: This is a compatibility endpoint that mimics the original LangGraph interface.
-    In a full ADK implementation, this would be handled by the ADK runtime.
     """
     logger.info(f"Received animation request with prompt: {request.prompt}")
     
     try:
-        # For now, return a placeholder response
-        # In a full implementation, this would invoke the ADK agent workflow
+        # Use ADK animation workflow to process the request
+        result = await animation_workflow.run({"user_input": request.prompt})
         
+        # Extract results from the workflow
+        if result and "final_result" in result:
+            final_result = result["final_result"]
+            
+            # Check if we got a successful animation generation
+            if "signed_url" in final_result:
+                return {
+                    "signed_url": final_result["signed_url"],
+                    "generation_status": "completed",
+                    "error": ""
+                }
+            elif "error" in final_result:
+                return {
+                    "signed_url": "",
+                    "generation_status": "error",
+                    "error": final_result["error"]
+                }
+        
+        # Default response if workflow doesn't return expected format
         return {
             "signed_url": "",
-            "generation_status": "adk_migration_in_progress", 
-            "error": "ADK agent system is being implemented. Please use the original agent service for now."
+            "generation_status": "processing",
+            "error": ""
         }
         
     except Exception as e:
@@ -74,10 +93,7 @@ async def generate_animation(request: AnimationRequest):
 @app.post("/thread/{thread_id}")
 async def handle_thread_request(thread_id: str, request: ThreadRequest):
     """
-    Handle thread requests - compatibility endpoint for the existing frontend.
-    
-    Note: This maintains compatibility with the existing streaming interface
-    while the ADK implementation is being completed.
+    Handle thread requests - uses ADK agents for processing.
     """
     logger.info(f"Received thread request for thread: {thread_id}")
     
@@ -92,11 +108,42 @@ async def handle_thread_request(thread_id: str, request: ThreadRequest):
         if not latest_message:
             raise HTTPException(status_code=400, detail="No human message provided")
         
-        # For now, return a placeholder response indicating ADK migration
+        # Use ADK agents to process the request
+        # First determine if this is an animation request or conversation
+        try:
+            # Try animation workflow first
+            result = await animation_workflow.run({"user_input": latest_message})
+            
+            if result and "final_result" in result:
+                final_result = result["final_result"]
+                
+                if "signed_url" in final_result:
+                    # Animation was generated successfully
+                    response_content = f"Animation generated successfully! You can view it here: {final_result['signed_url']}"
+                elif "error" in final_result:
+                    response_content = f"Error generating animation: {final_result['error']}"
+                else:
+                    response_content = "Animation is being processed."
+            else:
+                response_content = "Processing your animation request..."
+                
+        except Exception as e:
+            # If animation workflow fails, try conversation agent
+            logger.info(f"Animation workflow failed, trying conversation: {str(e)}")
+            try:
+                conv_result = await conversation_agent.run({"user_input": latest_message})
+                if conv_result and "conversation_result" in conv_result:
+                    response_content = conv_result["conversation_result"]
+                else:
+                    response_content = "I'm here to help with 3D animation generation and related questions."
+            except Exception as conv_e:
+                logger.error(f"Conversation agent also failed: {str(conv_e)}")
+                response_content = "I apologize, but I'm experiencing technical difficulties. Please try again later."
+        
         response_message = {
-            "id": "adk_migration_msg",
+            "id": f"msg_{thread_id}_{len(request.messages)}",
             "type": "ai", 
-            "content": "The ADK-based animation agent is being implemented. The system now includes:\n\n1. ✅ Analysis Agent - Determines user intent\n2. ✅ Script Generation Agent - Creates Blender scripts\n3. ✅ Storage Agent - Handles cloud storage uploads\n4. ✅ Rendering Agent - Coordinates with Blender service\n\nThe migration separates the cloud storage logic from the animator service as requested. Please use the original agent service while the ADK integration is completed."
+            "content": response_content
         }
         
         return {

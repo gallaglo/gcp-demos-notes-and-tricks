@@ -2,8 +2,6 @@
 import logging
 import re
 from typing import Dict, Any, List, Optional
-from google.adk.tools import tool
-from google.adk.tools.context import ToolContext
 
 logger = logging.getLogger(__name__)
 
@@ -263,13 +261,11 @@ bpy.ops.export_scene.gltf(
             if matches:
                 raise ValueError('Incorrect object creation syntax: too many arguments in bpy.data.objects.new()')
 
-@tool
-async def generate_blender_script(tool_context: ToolContext, prompt: str, history: List[Dict[str, str]] = None) -> Dict[str, Any]:
+async def generate_blender_script( prompt: str, history: List[Dict[str, str]] = None) -> Dict[str, Any]:
     """
     Generate a Blender Python script based on user prompt.
     
     Args:
-        tool_context: ADK tool context
         prompt: Text description of the animation to create
         history: Conversation history for context
         
@@ -281,9 +277,6 @@ async def generate_blender_script(tool_context: ToolContext, prompt: str, histor
         script = generator.generate(prompt, history)
         
         # Store script in tool context state
-        tool_context.state["blender_script"] = script
-        tool_context.state["script_generation_status"] = "success"
-        tool_context.state["animation_prompt"] = prompt
         
         return {
             "status": "success",
@@ -297,8 +290,6 @@ async def generate_blender_script(tool_context: ToolContext, prompt: str, histor
         logger.error(error_msg)
         
         # Store error in tool context state
-        tool_context.state["script_generation_status"] = "error"
-        tool_context.state["script_generation_error"] = error_msg
         
         return {
             "status": "error",
@@ -307,25 +298,20 @@ async def generate_blender_script(tool_context: ToolContext, prompt: str, histor
             "message": "Failed to generate Blender script"
         }
 
-@tool
-async def get_generated_script(tool_context: ToolContext) -> Dict[str, Any]:
+async def get_generated_script() -> Dict[str, Any]:
     """
     Get the currently generated Blender script from state.
     
     Args:
-        tool_context: ADK tool context
         
     Returns:
         Dictionary containing script information
     """
-    script = tool_context.state.get("blender_script", "")
-    status = tool_context.state.get("script_generation_status", "not_started")
-    error = tool_context.state.get("script_generation_error", "")
     
     return {
-        "script": script,
-        "status": status,
-        "error": error,
-        "has_script": bool(script),
-        "script_length": len(script)
+        "script": "",
+        "status": "not_started",
+        "error": "",
+        "has_script": False,
+        "script_length": 0
     }

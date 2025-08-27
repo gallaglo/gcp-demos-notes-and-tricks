@@ -3,8 +3,6 @@ import re
 import ast
 import logging
 from typing import Dict, Any, List, Tuple
-from google.adk.tools import tool
-from google.adk.tools.context import ToolContext
 
 logger = logging.getLogger(__name__)
 
@@ -253,13 +251,11 @@ class AdvancedBlenderScriptValidator:
         
         return " | ".join(summary_parts)
 
-@tool
-async def validate_blender_script(tool_context: ToolContext, script: str) -> Dict[str, Any]:
+async def validate_blender_script( script: str) -> Dict[str, Any]:
     """
     Comprehensive validation of a Blender Python script.
     
     Args:
-        tool_context: ADK tool context
         script: The Blender Python script to validate
         
     Returns:
@@ -270,9 +266,6 @@ async def validate_blender_script(tool_context: ToolContext, script: str) -> Dic
         validation_results = validator.validate_script(script)
         
         # Store validation results in tool context state
-        tool_context.state["validation_results"] = validation_results
-        tool_context.state["script_validated"] = True
-        tool_context.state["script_valid"] = validation_results["valid"]
         
         return {
             "status": "completed",
@@ -289,9 +282,6 @@ async def validate_blender_script(tool_context: ToolContext, script: str) -> Dic
         logger.error(error_msg)
         
         # Store error in tool context state
-        tool_context.state["validation_error"] = error_msg
-        tool_context.state["script_validated"] = False
-        tool_context.state["script_valid"] = False
         
         return {
             "status": "error",
@@ -301,13 +291,11 @@ async def validate_blender_script(tool_context: ToolContext, script: str) -> Dic
             "message": "Failed to validate script"
         }
 
-@tool
-async def fix_common_script_issues(tool_context: ToolContext, script: str) -> Dict[str, Any]:
+async def fix_common_script_issues( script: str) -> Dict[str, Any]:
     """
     Automatically fix common Blender script issues.
     
     Args:
-        tool_context: ADK tool context
         script: The original Blender script
         
     Returns:
@@ -351,9 +339,6 @@ async def fix_common_script_issues(tool_context: ToolContext, script: str) -> Di
             applied_fixes.append("Fixed old-style object linking")
         
         # Store fixed script in tool context state
-        tool_context.state["fixed_script"] = fixed_script
-        tool_context.state["applied_fixes"] = applied_fixes
-        tool_context.state["script_fixed"] = True
         
         return {
             "status": "completed",
@@ -367,8 +352,6 @@ async def fix_common_script_issues(tool_context: ToolContext, script: str) -> Di
         error_msg = f"Script fixing failed: {str(e)}"
         logger.error(error_msg)
         
-        tool_context.state["fix_error"] = error_msg
-        tool_context.state["script_fixed"] = False
         
         return {
             "status": "error",
@@ -378,23 +361,18 @@ async def fix_common_script_issues(tool_context: ToolContext, script: str) -> Di
             "message": "Failed to apply automatic fixes"
         }
 
-@tool
-async def get_validation_status(tool_context: ToolContext) -> Dict[str, Any]:
+async def get_validation_status() -> Dict[str, Any]:
     """
     Get the current validation status from tool context state.
     
     Args:
-        tool_context: ADK tool context
         
     Returns:
         Dictionary containing validation status information
     """
     return {
-        "script_validated": tool_context.state.get("script_validated", False),
-        "script_valid": tool_context.state.get("script_valid", False),
-        "validation_results": tool_context.state.get("validation_results", {}),
-        "validation_error": tool_context.state.get("validation_error", ""),
-        "script_fixed": tool_context.state.get("script_fixed", False),
-        "applied_fixes": tool_context.state.get("applied_fixes", []),
-        "fixed_script": tool_context.state.get("fixed_script", "")
+        "validation_status": "not_started",
+        "valid": False,
+        "error": "",
+        "has_result": False
     }

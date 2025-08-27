@@ -12,12 +12,13 @@ locals {
 
   # Define minimal required roles for each service
   animator_iam_roles = [
-    "roles/storage.admin" # To create objects and generate signed URLs
+    # Animator no longer needs storage.admin as GCS functionality moved to agent
   ]
 
   agent_iam_roles = [
     "roles/aiplatform.user", # For calling LLM APIs
-    "roles/run.invoker"      # To invoke the animator service
+    "roles/run.invoker",     # To invoke the animator service
+    "roles/storage.admin"    # To create objects and generate signed URLs (moved from animator)
   ]
 
   # Combined roles for local testing
@@ -116,6 +117,12 @@ resource "google_service_account_key" "animator_sa_key" {
   service_account_id = google_service_account.animator[0].name
 }
 
+# Service account key for agent in production mode
+resource "google_service_account_key" "agent_sa_key" {
+  count              = local.create_cloud_resources ? 1 : 0
+  service_account_id = google_service_account.agent[0].name
+}
+
 # Secret management for service account key
 resource "google_secret_manager_secret" "animator_sa_key" {
   count     = local.create_cloud_resources ? 1 : 0
@@ -135,6 +142,25 @@ resource "google_secret_manager_secret_version" "animator_sa_key_version" {
   secret_data = base64decode(google_service_account_key.animator_sa_key[0].private_key)
 }
 
+# Secret management for agent service account key
+resource "google_secret_manager_secret" "agent_sa_key" {
+  count     = local.create_cloud_resources ? 1 : 0
+  secret_id = "agent-sa-key"
+  project   = var.project_id
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.required_apis["secretmanager.googleapis.com"]]
+}
+
+resource "google_secret_manager_secret_version" "agent_sa_key_version" {
+  count       = local.create_cloud_resources ? 1 : 0
+  secret      = google_secret_manager_secret.agent_sa_key[0].id
+  secret_data = base64decode(google_service_account_key.agent_sa_key[0].private_key)
+}
+
 # IAM permissions for production mode
 resource "google_secret_manager_secret_iam_member" "animator_secret_accessor" {
   count     = local.create_cloud_resources ? 1 : 0
@@ -142,6 +168,14 @@ resource "google_secret_manager_secret_iam_member" "animator_secret_accessor" {
   secret_id = google_secret_manager_secret.animator_sa_key[0].secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.animator[0].email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "agent_secret_accessor" {
+  count     = local.create_cloud_resources ? 1 : 0
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.agent_sa_key[0].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.agent[0].email}"
 }
 
 # Simplified IAM role assignments for production
@@ -206,34 +240,8 @@ resource "google_cloud_run_v2_service" "animator" {
       }
 
       env {
-        name  = "GCS_BUCKET_NAME"
-        value = google_storage_bucket.animator_assets.name
-      }
-
-      env {
         name  = "GOOGLE_CLOUD_PROJECT"
         value = var.project_id
-      }
-
-      env {
-        name  = "GOOGLE_APPLICATION_CREDENTIALS"
-        value = "/run/secrets/key.json"
-      }
-
-      volume_mounts {
-        name       = "service-account"
-        mount_path = "/run/secrets"
-      }
-    }
-
-    volumes {
-      name = "service-account"
-      secret {
-        secret = google_secret_manager_secret.animator_sa_key[0].secret_id
-        items {
-          version = "latest"
-          path    = "key.json"
-        }
       }
     }
 
@@ -241,7 +249,6 @@ resource "google_cloud_run_v2_service" "animator" {
   }
 
   depends_on = [
-    google_secret_manager_secret_version.animator_sa_key_version,
     google_project_service.required_apis["run.googleapis.com"]
   ]
 }
@@ -298,14 +305,41 @@ resource "google_cloud_run_v2_service" "agent" {
         name  = "GOOGLE_CLOUD_PROJECT"
         value = var.project_id
       }
+
+      env {
+        name  = "GCS_BUCKET_NAME"
+        value = google_storage_bucket.animator_assets.name
+      }
+
+      env {
+        name  = "GOOGLE_APPLICATION_CREDENTIALS"
+        value = "/run/secrets/key.json"
+      }
+
+      volume_mounts {
+        name       = "service-account"
+        mount_path = "/run/secrets"
+      }
     }
 
     service_account = google_service_account.agent[0].email
 
     timeout = "300s"
+
+    volumes {
+      name = "service-account"
+      secret {
+        secret = google_secret_manager_secret.agent_sa_key[0].secret_id
+        items {
+          version = "latest"
+          path    = "key.json"
+        }
+      }
+    }
   }
 
   depends_on = [
+    google_secret_manager_secret_version.agent_sa_key_version,
     google_project_service.required_apis["run.googleapis.com"],
     google_cloud_run_v2_service.animator
   ]

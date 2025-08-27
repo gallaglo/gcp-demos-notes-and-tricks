@@ -4,8 +4,6 @@ import datetime
 import logging
 from typing import Dict, Any
 from google.cloud import storage
-from google.adk.tools import tool
-from google.adk.tools.context import ToolContext
 
 logger = logging.getLogger(__name__)
 
@@ -63,13 +61,11 @@ class GCSUploader:
             logger.error(f"Error in GCS operation: {str(e)}")
             raise
 
-@tool
-async def upload_animation_to_gcs(tool_context: ToolContext, animation_path: str, script_content: str, bucket_name: str) -> Dict[str, Any]:
+async def upload_animation_to_gcs( animation_path: str, script_content: str, bucket_name: str) -> Dict[str, Any]:
     """
     Tool to upload animation and script files to Google Cloud Storage.
     
     Args:
-        tool_context: ADK tool context
         animation_path: Path to the animation file to upload
         script_content: Content of the Blender script used to generate the animation
         bucket_name: Name of the GCS bucket to upload to
@@ -82,8 +78,6 @@ async def upload_animation_to_gcs(tool_context: ToolContext, animation_path: str
         signed_url = uploader.upload_file_with_script(animation_path, script_content)
         
         # Store results in tool context state
-        tool_context.state["signed_url"] = signed_url
-        tool_context.state["upload_status"] = "success"
         
         return {
             "status": "success",
@@ -97,8 +91,6 @@ async def upload_animation_to_gcs(tool_context: ToolContext, animation_path: str
         logger.error(error_msg)
         
         # Store error in tool context state
-        tool_context.state["upload_status"] = "error"
-        tool_context.state["upload_error"] = error_msg
         
         return {
             "status": "error",
@@ -107,24 +99,19 @@ async def upload_animation_to_gcs(tool_context: ToolContext, animation_path: str
             "message": "Failed to upload animation to cloud storage"
         }
 
-@tool
-async def get_storage_status(tool_context: ToolContext) -> Dict[str, Any]:
+async def get_storage_status() -> Dict[str, Any]:
     """
     Tool to get the current storage upload status.
     
     Args:
-        tool_context: ADK tool context
         
     Returns:
         Dictionary containing current storage status
     """
-    upload_status = tool_context.state.get("upload_status", "not_started")
-    signed_url = tool_context.state.get("signed_url", "")
-    upload_error = tool_context.state.get("upload_error", "")
     
     return {
-        "upload_status": upload_status,
-        "signed_url": signed_url,
-        "error": upload_error,
-        "has_result": bool(signed_url)
+        "upload_status": "not_started",
+        "signed_url": "",
+        "error": "",
+        "has_result": False
     }

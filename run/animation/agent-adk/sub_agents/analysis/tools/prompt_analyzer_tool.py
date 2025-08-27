@@ -1,18 +1,14 @@
 """Prompt Analysis Tool for ADK Animation Agent"""
 import logging
 from typing import Dict, Any, List
-from google.adk.tools import tool
-from google.adk.tools.context import ToolContext
 
 logger = logging.getLogger(__name__)
 
-@tool
-async def analyze_user_prompt(tool_context: ToolContext, user_message: str, conversation_history: List[Dict[str, str]] = None) -> Dict[str, Any]:
+async def analyze_user_prompt(user_message: str, conversation_history: List[Dict[str, str]] = None) -> Dict[str, Any]:
     """
     Analyze user message to determine if it requires animation generation or is conversational.
     
     Args:
-        tool_context: ADK tool context
         user_message: The user's current message
         conversation_history: List of previous messages with role and content
         
@@ -22,10 +18,6 @@ async def analyze_user_prompt(tool_context: ToolContext, user_message: str, conv
     try:
         if conversation_history is None:
             conversation_history = []
-        
-        # Store the current prompt in state
-        tool_context.state["current_prompt"] = user_message
-        tool_context.state["conversation_history"] = conversation_history
         
         # Keywords that strongly indicate animation requests
         animation_keywords = [
@@ -80,11 +72,6 @@ async def analyze_user_prompt(tool_context: ToolContext, user_message: str, conv
                 description = "I'm not sure if you're asking for an animation. Could you clarify what you'd like me to help you with?"
             action = "conversation"
         
-        # Store analysis results in state
-        tool_context.state["analysis_result"] = result_type
-        tool_context.state["analysis_description"] = description
-        tool_context.state["next_action"] = action
-        
         return {
             "result_type": result_type,
             "description": description,
@@ -97,10 +84,6 @@ async def analyze_user_prompt(tool_context: ToolContext, user_message: str, conv
         error_msg = f"Error analyzing prompt: {str(e)}"
         logger.error(error_msg)
         
-        # Store error in state
-        tool_context.state["analysis_error"] = error_msg
-        tool_context.state["next_action"] = "error"
-        
         return {
             "result_type": "ERROR",
             "description": "Failed to analyze the user request",
@@ -109,21 +92,18 @@ async def analyze_user_prompt(tool_context: ToolContext, user_message: str, conv
             "message": "Analysis failed due to an error"
         }
 
-@tool
-async def get_analysis_result(tool_context: ToolContext) -> Dict[str, Any]:
+async def get_analysis_result() -> Dict[str, Any]:
     """
-    Get the current analysis result from the tool context state.
+    Get the current analysis result. Note: In ADK, state is managed differently.
+    This function is kept for compatibility but may need refactoring.
     
-    Args:
-        tool_context: ADK tool context
-        
     Returns:
         Dictionary containing current analysis state
     """
     return {
-        "result_type": tool_context.state.get("analysis_result", "UNKNOWN"),
-        "description": tool_context.state.get("analysis_description", ""),
-        "action": tool_context.state.get("next_action", "unknown"),
-        "current_prompt": tool_context.state.get("current_prompt", ""),
-        "error": tool_context.state.get("analysis_error", "")
+        "result_type": "UNKNOWN",
+        "description": "",
+        "action": "unknown",
+        "current_prompt": "",
+        "error": ""
     }

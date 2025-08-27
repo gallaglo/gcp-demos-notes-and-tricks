@@ -12,7 +12,6 @@ from sub_agents.validation.tools.script_validator_tool import (
     validate_blender_script, 
     fix_common_script_issues
 )
-from google.adk.tools.context import ToolContext
 
 # Mock tool context for testing
 class MockToolContext:

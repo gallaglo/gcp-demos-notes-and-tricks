@@ -1,7 +1,6 @@
 """Main ADK Animation Agent Orchestrator"""
 import logging
 from google.adk.agents import Agent, SequentialAgent
-from google.adk.agents.mixins import LoopMixin
 from sub_agents.analysis.analysis_agent import analysis_agent
 from sub_agents.script_generation.script_generation_agent import script_generation_agent
 from sub_agents.storage.storage_agent import storage_agent
@@ -60,7 +59,7 @@ conversation_agent = Agent(
 # Create the animation generation workflow (analysis -> script+validation -> render -> storage)
 animation_workflow = SequentialAgent(
     name="animation_workflow",
-    agents=[
+    sub_agents=[
         analysis_agent,
         script_generation_agent,  # Now includes validation agent
         rendering_agent,

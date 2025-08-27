@@ -1,18 +1,14 @@
 """Conversation Tool for ADK Animation Agent"""
 import logging
 from typing import Dict, Any, List
-from google.adk.tools import tool
-from google.adk.tools.context import ToolContext
 
 logger = logging.getLogger(__name__)
 
-@tool
-async def handle_conversation(tool_context: ToolContext, user_message: str, conversation_history: List[Dict[str, str]] = None) -> Dict[str, Any]:
+async def handle_conversation( user_message: str, conversation_history: List[Dict[str, str]] = None) -> Dict[str, Any]:
     """
     Handle conversational interactions that don't require animation generation.
     
     Args:
-        tool_context: ADK tool context
         user_message: The user's message
         conversation_history: Previous conversation messages
         
@@ -24,8 +20,6 @@ async def handle_conversation(tool_context: ToolContext, user_message: str, conv
             conversation_history = []
         
         # Store conversation context in state
-        tool_context.state["conversation_mode"] = True
-        tool_context.state["last_user_message"] = user_message
         
         # Generate appropriate conversational responses based on message content
         message_lower = user_message.lower()
@@ -52,14 +46,12 @@ async def handle_conversation(tool_context: ToolContext, user_message: str, conv
             response = "I'm not sure if you're asking for an animation or just chatting. Could you clarify what you'd like me to help you with? I'm great at creating 3D animations!"
         
         # Store the response in state
-        tool_context.state["conversation_response"] = response
         
         # Update conversation history
         updated_history = conversation_history + [
             {"role": "human", "content": user_message},
             {"role": "ai", "content": response}
         ]
-        tool_context.state["conversation_history"] = updated_history
         
         return {
             "status": "success",
@@ -72,7 +64,6 @@ async def handle_conversation(tool_context: ToolContext, user_message: str, conv
         error_msg = f"Error handling conversation: {str(e)}"
         logger.error(error_msg)
         
-        tool_context.state["conversation_error"] = error_msg
         
         return {
             "status": "error",
@@ -81,21 +72,17 @@ async def handle_conversation(tool_context: ToolContext, user_message: str, conv
             "message": "Failed to handle conversation"
         }
 
-@tool
-async def get_conversation_context(tool_context: ToolContext) -> Dict[str, Any]:
+async def get_conversation_context() -> Dict[str, Any]:
     """
     Get the current conversation context from tool state.
     
     Args:
-        tool_context: ADK tool context
         
     Returns:
         Dictionary containing conversation context
     """
     return {
-        "conversation_mode": tool_context.state.get("conversation_mode", False),
-        "last_user_message": tool_context.state.get("last_user_message", ""),
-        "conversation_response": tool_context.state.get("conversation_response", ""),
-        "conversation_history": tool_context.state.get("conversation_history", []),
-        "error": tool_context.state.get("conversation_error", "")
+        "conversation_history": [],
+        "last_response": "",
+        "context": "empty"
     }

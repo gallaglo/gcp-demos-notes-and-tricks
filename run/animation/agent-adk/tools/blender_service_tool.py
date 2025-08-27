@@ -2,8 +2,6 @@
 import logging
 import requests
 from typing import Dict, Any
-from google.adk.tools import tool
-from google.adk.tools.context import ToolContext
 from google.auth.transport.requests import Request
 from google.oauth2 import id_token
 from ..config import BLENDER_SERVICE_URL, REQUEST_TIMEOUT
@@ -21,13 +19,11 @@ def get_id_token(audience: str) -> str:
         logger.error(f"Error getting ID token: {str(e)}")
         raise
 
-@tool
-async def render_animation_with_blender(tool_context: ToolContext, script: str, prompt: str) -> Dict[str, Any]:
+async def render_animation_with_blender(script: str, prompt: str) -> Dict[str, Any]:
     """
     Send Blender script to the animator service for rendering.
     
     Args:
-        tool_context: ADK tool context
         script: The Blender Python script to render
         prompt: The original user prompt for context
         
@@ -67,10 +63,6 @@ async def render_animation_with_blender(tool_context: ToolContext, script: str, 
             error_message = f"Blender service error: {response.status_code} - {response.text}"
             logger.error(error_message)
             
-            # Store error in state
-            tool_context.state["render_status"] = "error"
-            tool_context.state["render_error"] = error_message
-            
             return {
                 "status": "error",
                 "error": error_message,
@@ -83,10 +75,6 @@ async def render_animation_with_blender(tool_context: ToolContext, script: str, 
         
         # Check for error in response
         if "error" in result and result["error"]:
-            # Store error in state
-            tool_context.state["render_status"] = "error"
-            tool_context.state["render_error"] = result["error"]
-            
             return {
                 "status": "error",
                 "error": result["error"],
@@ -97,10 +85,6 @@ async def render_animation_with_blender(tool_context: ToolContext, script: str, 
         # Success case - the old service returns signed_url directly
         # We need to modify this to return file path for the storage agent
         if "signed_url" in result:
-            # Store render results in state
-            tool_context.state["render_status"] = "success"
-            tool_context.state["animation_file_url"] = result["signed_url"]
-            
             return {
                 "status": "success",
                 "file_path": "",  # The old service uploads directly, no local file
@@ -110,9 +94,6 @@ async def render_animation_with_blender(tool_context: ToolContext, script: str, 
         else:
             error_message = "Blender service returned unexpected response format"
             logger.error(error_message)
-            
-            tool_context.state["render_status"] = "error"
-            tool_context.state["render_error"] = error_message
             
             return {
                 "status": "error",
@@ -125,10 +106,6 @@ async def render_animation_with_blender(tool_context: ToolContext, script: str, 
         error_msg = f"Error communicating with Blender service: {str(e)}"
         logger.error(error_msg)
         
-        # Store error in state
-        tool_context.state["render_status"] = "error"
-        tool_context.state["render_error"] = error_msg
-        
         return {
             "status": "error",
             "error": error_msg,
@@ -136,24 +113,17 @@ async def render_animation_with_blender(tool_context: ToolContext, script: str, 
             "message": "Failed to communicate with Blender service"
         }
 
-@tool
-async def get_render_status(tool_context: ToolContext) -> Dict[str, Any]:
+async def get_render_status() -> Dict[str, Any]:
     """
-    Get the current render status from tool context state.
+    Get the current render status. Note: In ADK, state is managed differently.
+    This function is kept for compatibility but may need refactoring.
     
-    Args:
-        tool_context: ADK tool context
-        
     Returns:
         Dictionary containing current render status
     """
-    render_status = tool_context.state.get("render_status", "not_started")
-    render_error = tool_context.state.get("render_error", "")
-    animation_file_url = tool_context.state.get("animation_file_url", "")
-    
     return {
-        "render_status": render_status,
-        "error": render_error,
-        "animation_file_url": animation_file_url,
-        "has_result": bool(animation_file_url)
+        "render_status": "not_started",
+        "error": "",
+        "animation_file_url": "",
+        "has_result": False
     }
