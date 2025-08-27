@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "simplified-animator-service"
+version = "0.1.0"
+description = "Simplified Blender Animation Service (GCS logic removed for ADK migration)"
+authors = ["Animation Team"]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+fastapi = "*"
+uvicorn = "*"
+pydantic = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

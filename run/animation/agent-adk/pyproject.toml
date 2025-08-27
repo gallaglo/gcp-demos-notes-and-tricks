@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "animation-adk-agent"
+version = "0.1.0"
+description = "ADK-based Animation Generation Agent"
+authors = ["Animation Team"]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+google-adk = {extras = ["eval"], version = "*"}
+google-cloud-aiplatform = "*"
+google-cloud-storage = "*"
+google-genai = "*"
+pydantic = "*"
+python-dotenv = "*"
+requests = "*"
+google-auth = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
