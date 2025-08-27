@@ -56,7 +56,9 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # Install runtime dependencies in a single layer to minimize size
 # Install only what's proven to be needed for Blender to run
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1-mesa-glx \
+    libgl1 \
+    libgl1-mesa-dri \
+    libglu1-mesa \
     libxi6 \
     libxfixes3 \
     libxrender1 \
@@ -98,7 +100,7 @@ ENV PATH="/usr/local/blender:/home/blenderuser/.local/bin:${PATH}" \
 # Install dependencies
 RUN uv sync
 
-EXPOSE $PORT
+EXPOSE 8080
 
 # Run the FastAPI server
-CMD ["uv", "run", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "$PORT", "--workers", "1"]
+CMD ["sh", "-c", "uv run uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080} --workers 1"]

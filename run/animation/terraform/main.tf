@@ -220,6 +220,7 @@ resource "google_cloud_run_v2_service" "animator" {
         value = "/run/secrets/key.json"
       }
 
+
       volume_mounts {
         name       = "service-account"
         mount_path = "/run/secrets"
