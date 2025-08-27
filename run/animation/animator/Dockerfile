@@ -1,4 +1,6 @@
-FROM python:3.9-slim-bookworm as builder
+# Use the official Python image for builder stage
+FROM python:3.13-slim as builder
+
 # Install build dependencies first
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
@@ -45,13 +47,16 @@ RUN cd /blender-4.3.0-linux-x64 && \
     find 4.3 -type d -name "examples" -exec rm -rf {} \; 2>/dev/null || true && \
     find 4.3 -type d -name "benchmarks" -exec rm -rf {} \; 2>/dev/null || true
 
-# Runtime stage - use slim-bookworm to minimize base size
-FROM python:3.9-slim-bookworm as runtime
+# Runtime stage - use Python 3.13 slim to match builder
+FROM python:3.13-slim as runtime
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 # Install runtime dependencies in a single layer to minimize size
 # Install only what's proven to be needed for Blender to run
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1-mesa-glx \
+    libgl1 \
     libxi6 \
     libxfixes3 \
     libxrender1 \
@@ -74,26 +79,28 @@ COPY --from=builder --chown=blenderuser:blenderuser /blender-4.3.0-linux-x64 /us
 
 # Switch to non-root user for security
 USER blenderuser
+
 WORKDIR /app
 
-# Copy requirements and install dependencies with cleanup
-COPY --chown=blenderuser:blenderuser requirements.txt .
-RUN pip install --user --no-cache-dir -r requirements.txt \
-    && find ~/.local -name '*.pyc' -delete \
-    && find ~/.local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
-    && rm -rf ~/.cache/pip
-
-# Set environment variables - minimize redundant paths
-ENV PATH="/usr/local/blender:/home/blenderuser/.local/bin:${PATH}" \
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/usr/local/blender:/home/blenderuser/.local/bin:${PATH}" \
     BLENDER_USER_CONFIG=/tmp/blender-config \
     BLENDER_USER_SCRIPTS=/usr/local/blender/4.3/scripts \
     BLENDER_SYSTEM_SCRIPTS=/usr/local/blender/4.3/scripts \
-    XDG_CONFIG_HOME=/tmp/blender-config \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    XDG_CONFIG_HOME=/tmp/blender-config
 
-# Copy only necessary application files (minimize what's copied)
+# Copy dependency files first for better caching
+COPY --chown=blenderuser:blenderuser pyproject.toml ./
+
+# Install dependencies (this layer will be cached unless deps change)
+RUN uv sync
+
+# Copy source code last (this layer rebuilds when code changes)
 COPY --chown=blenderuser:blenderuser . .
 
-# Command to run the application
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 app:app
+EXPOSE 8080
+
+# Run the FastAPI server
+CMD ["sh", "-c", "uv run uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080} --workers 1"]
