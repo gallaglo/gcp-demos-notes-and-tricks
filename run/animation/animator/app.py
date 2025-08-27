@@ -1,6 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from flask import Flask, request, jsonify
 from google.cloud import storage
 import os
 import subprocess
@@ -11,7 +9,7 @@ import datetime
 from functools import lru_cache
 from typing import Dict, Any
 
-app = FastAPI(title="Animator Service", description="3D Animation rendering service using Blender")
+app = Flask(__name__)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -53,16 +51,6 @@ try:
 except Exception as e:
     logger.error(f"Failed to initialize components: {str(e)}")
     raise
-
-class RenderRequest(BaseModel):
-    script: str
-    prompt: str = "No prompt provided"
-
-class ValidateRequest(BaseModel):
-    script: str
-
-class GenerateRequest(BaseModel):
-    prompt: str
 
 class BlenderScriptValidator:
     @staticmethod
@@ -227,25 +215,37 @@ class GCSUploader:
             logger.error(f"Error in GCS operation: {str(e)}")
             raise
 
-@app.get("/health")
-async def health():
+@app.route('/health')
+def health():
     """Basic endpoint for Cloud Run startup probe."""
     try:
-        return {
+        return jsonify({
             'status': 'healthy',
             'time': datetime.datetime.utcnow().isoformat()
-        }
+        })
     except Exception as e:
-        raise HTTPException(status_code=500, detail={
+        return jsonify({
             'status': 'unhealthy',
             'error': str(e)
-        })
+        }), 500
 
-@app.post("/render")
-async def render(request: RenderRequest):
+@app.route('/render', methods=['POST'])
+def render():
     """Endpoint for rendering a Blender script received from LangGraph."""
-    script = request.script
-    prompt = request.prompt
+    if not request.content_type or 'application/json' not in request.content_type:
+        return jsonify({'error': 'Request must be JSON'}), 400
+    
+    try:
+        data = request.get_json()
+    except Exception:
+        return jsonify({'error': 'Invalid JSON format'}), 400
+    
+    # Get script and prompt from request
+    script = data.get('script')
+    prompt = data.get('prompt', 'No prompt provided')  # For logging
+    
+    if not script:
+        return jsonify({'error': 'No script provided'}), 400
     
     try:
         # First, validate the script for security
@@ -253,7 +253,7 @@ async def render(request: RenderRequest):
         validation_result = validator.validate_script(script)
         
         if not validation_result['valid']:
-            raise HTTPException(status_code=400, detail={'error': validation_result['error']})
+            return jsonify({'error': validation_result['error']}), 400
         
         # Script is valid, proceed with rendering
         blender_runner = BlenderRunner()
@@ -271,28 +271,38 @@ async def render(request: RenderRequest):
             if result['success']:
                 try:
                     signed_url = gcs_uploader.upload_file_with_script(output_path, script_path)
-                    return {
+                    return jsonify({
                         'signed_url': signed_url,
                         'expiration': '15 minutes'
-                    }
+                    })
                 except Exception as upload_error:
                     logger.error(f"Upload error: {str(upload_error)}")
-                    raise HTTPException(status_code=500, detail={
+                    return jsonify({
                         'error': 'Failed to upload animation or generate signed URL',
                         'details': str(upload_error)
-                    })
-            raise HTTPException(status_code=500, detail={'error': result['error']})
+                    }), 500
+            return jsonify({'error': result['error']}), 500
     
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
-        raise HTTPException(status_code=500, detail={'error': str(e)})
+        return jsonify({'error': str(e)}), 500
 
-@app.post("/validate")
-async def validate_script(request: ValidateRequest):
+@app.route('/validate', methods=['POST'])
+def validate_script():
     """Endpoint for validating a Blender script without executing it."""
-    script = request.script
+    if not request.content_type or 'application/json' not in request.content_type:
+        return jsonify({'error': 'Request must be JSON'}), 400
+    
+    try:
+        data = request.get_json()
+    except Exception:
+        return jsonify({'error': 'Invalid JSON format'}), 400
+    
+    # Get script from request
+    script = data.get('script')
+    
+    if not script:
+        return jsonify({'error': 'No script provided'}), 400
     
     try:
         # Validate the script
@@ -300,10 +310,10 @@ async def validate_script(request: ValidateRequest):
         validation_result = validator.validate_script(script)
         
         if not validation_result['valid']:
-            raise HTTPException(status_code=400, detail={
+            return jsonify({
                 'valid': False,
                 'error': validation_result['error']
-            })
+            }), 400
             
         # Basic syntax check - look for potential issues
         issues = []
@@ -316,27 +326,36 @@ async def validate_script(request: ValidateRequest):
                 if line.count(',') > 1:  # More than one comma indicates potential issue
                     issues.append(f"Potential issue with camera creation: {line.strip()}")
         
-        return {
+        return jsonify({
             'valid': True,
             'potential_issues': issues
-        }
+        })
     
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Error validating script: {str(e)}")
-        raise HTTPException(status_code=500, detail={
+        return jsonify({
             'valid': False,
             'error': str(e)
-        })
+        }), 500
 
 # Keep the original /generate endpoint for backward compatibility
-@app.post("/generate")
-async def generate(request: GenerateRequest):
-    raise HTTPException(status_code=400, detail={
+@app.route('/generate', methods=['POST'])
+def generate():
+    if not request.content_type or 'application/json' not in request.content_type:
+        return jsonify({'error': 'Request must be JSON'}), 400
+    
+    try:
+        data = request.get_json()
+    except Exception:
+        return jsonify({'error': 'Invalid JSON format'}), 400
+        
+    prompt = data.get('prompt')
+    if not prompt:
+        return jsonify({'error': 'No prompt provided'}), 400
+    
+    return jsonify({
         'error': 'This endpoint is deprecated. Please use Vertex AI Reasoning Engine.'
-    })
+    }), 400
 
 if __name__ == '__main__':
-    import uvicorn
-    uvicorn.run(app, host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
