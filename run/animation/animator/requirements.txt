@@ -1,4 +1,0 @@
-fastapi>=0.104.1,<0.105.0
-uvicorn[standard]>=0.24.0,<0.25.0
-google-cloud-storage>=2.18.0,<3.0.0
-setuptools>=68.2.2

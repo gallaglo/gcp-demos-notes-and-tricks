@@ -1,4 +1,6 @@
-FROM python:3.9-slim-bookworm as builder
+# Use the official Python image for builder stage
+FROM python:3.13-slim as builder
+
 # Install build dependencies first
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
@@ -45,8 +47,11 @@ RUN cd /blender-4.3.0-linux-x64 && \
     find 4.3 -type d -name "examples" -exec rm -rf {} \; 2>/dev/null || true && \
     find 4.3 -type d -name "benchmarks" -exec rm -rf {} \; 2>/dev/null || true
 
-# Runtime stage - use slim-bookworm to minimize base size
-FROM python:3.9-slim-bookworm as runtime
+# Runtime stage - use Python 3.13 slim to match builder
+FROM python:3.13-slim as runtime
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 # Install runtime dependencies in a single layer to minimize size
 # Install only what's proven to be needed for Blender to run
@@ -74,14 +79,13 @@ COPY --from=builder --chown=blenderuser:blenderuser /blender-4.3.0-linux-x64 /us
 
 # Switch to non-root user for security
 USER blenderuser
+
+# Install the project into /app
+COPY --chown=blenderuser:blenderuser . /app
 WORKDIR /app
 
-# Copy requirements and install dependencies with cleanup
-COPY --chown=blenderuser:blenderuser requirements.txt .
-RUN pip install --user --no-cache-dir -r requirements.txt \
-    && find ~/.local -name '*.pyc' -delete \
-    && find ~/.local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
-    && rm -rf ~/.cache/pip
+# Allow statements and log messages to immediately appear in the logs
+ENV PYTHONUNBUFFERED=1
 
 # Set environment variables - minimize redundant paths
 ENV PATH="/usr/local/blender:/home/blenderuser/.local/bin:${PATH}" \
@@ -89,11 +93,12 @@ ENV PATH="/usr/local/blender:/home/blenderuser/.local/bin:${PATH}" \
     BLENDER_USER_SCRIPTS=/usr/local/blender/4.3/scripts \
     BLENDER_SYSTEM_SCRIPTS=/usr/local/blender/4.3/scripts \
     XDG_CONFIG_HOME=/tmp/blender-config \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONDONTWRITEBYTECODE=1
 
-# Copy only necessary application files (minimize what's copied)
-COPY --chown=blenderuser:blenderuser . .
+# Install dependencies
+RUN uv sync
 
-# Command to run the application
-CMD exec uvicorn app:app --host 0.0.0.0 --port $PORT --workers 1
+EXPOSE $PORT
+
+# Run the FastAPI server
+CMD ["uv", "run", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "$PORT", "--workers", "1"]
