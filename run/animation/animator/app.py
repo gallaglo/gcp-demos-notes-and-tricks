@@ -1,4 +1,7 @@
-from flask import Flask, request, jsonify
+from fastapi import FastAPI, HTTPException, Response
+from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from google.cloud import storage
 import os
 import subprocess
@@ -7,9 +10,11 @@ import uuid
 import logging
 import datetime
 from functools import lru_cache
-from typing import Dict, Any
-
-app = Flask(__name__)
+from typing import Dict, Any, Optional
+import json
+import asyncio
+import time
+import uvicorn
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -17,6 +22,35 @@ logger = logging.getLogger(__name__)
 
 # Get project ID for logging
 project_id = os.getenv('GOOGLE_CLOUD_PROJECT')
+
+# Pydantic models for request/response
+class ScriptRequest(BaseModel):
+    script: str
+    prompt: Optional[str] = None
+
+class ValidationResponse(BaseModel):
+    valid: bool
+    error: Optional[str] = None
+    message: Optional[str] = None
+
+class RenderResponse(BaseModel):
+    success: bool
+    signed_url: Optional[str] = None
+    error: Optional[str] = None
+    expiration: Optional[str] = None
+
+class HealthResponse(BaseModel):
+    status: str
+    time: str
+
+class MCPStatusResponse(BaseModel):
+    mcp_available: bool
+    service: str
+    capabilities: list
+    blender_available: bool
+    bucket_configured: bool
+    timestamp: str
+    error: Optional[str] = None
 
 @lru_cache()
 def get_storage_client():
@@ -215,45 +249,39 @@ class GCSUploader:
             logger.error(f"Error in GCS operation: {str(e)}")
             raise
 
-@app.route('/health')
-def health():
+# Initialize FastAPI app
+app = FastAPI(title="Animation Service", description="Blender animation rendering service with MCP support")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure appropriately for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.get('/health', response_model=HealthResponse)
+async def health():
     """Basic endpoint for Cloud Run startup probe."""
     try:
-        return jsonify({
-            'status': 'healthy',
-            'time': datetime.datetime.utcnow().isoformat()
-        })
+        return HealthResponse(
+            status='healthy',
+            time=datetime.datetime.utcnow().isoformat()
+        )
     except Exception as e:
-        return jsonify({
-            'status': 'unhealthy',
-            'error': str(e)
-        }), 500
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.route('/render', methods=['POST'])
-def render():
+@app.post('/render', response_model=RenderResponse)
+async def render(request: ScriptRequest):
     """Endpoint for rendering a Blender script received from LangGraph."""
-    if not request.content_type or 'application/json' not in request.content_type:
-        return jsonify({'error': 'Request must be JSON'}), 400
-    
-    try:
-        data = request.get_json()
-    except Exception:
-        return jsonify({'error': 'Invalid JSON format'}), 400
-    
-    # Get script and prompt from request
-    script = data.get('script')
-    prompt = data.get('prompt', 'No prompt provided')  # For logging
-    
-    if not script:
-        return jsonify({'error': 'No script provided'}), 400
-    
     try:
         # First, validate the script for security
         validator = BlenderScriptValidator()
-        validation_result = validator.validate_script(script)
+        validation_result = validator.validate_script(request.script)
         
         if not validation_result['valid']:
-            return jsonify({'error': validation_result['error']}), 400
+            raise HTTPException(status_code=400, detail=validation_result['error'])
         
         # Script is valid, proceed with rendering
         blender_runner = BlenderRunner()
@@ -264,98 +292,213 @@ def render():
             output_path = os.path.join(temp_dir, 'animation.glb')
             
             with open(script_path, 'w') as f:
-                f.write(script)
+                f.write(request.script)
             
             result = blender_runner.run_blender(script_path, output_path)
             
             if result['success']:
                 try:
                     signed_url = gcs_uploader.upload_file_with_script(output_path, script_path)
-                    return jsonify({
-                        'signed_url': signed_url,
-                        'expiration': '15 minutes'
-                    })
+                    return RenderResponse(
+                        success=True,
+                        signed_url=signed_url,
+                        expiration='15 minutes'
+                    )
                 except Exception as upload_error:
                     logger.error(f"Upload error: {str(upload_error)}")
-                    return jsonify({
-                        'error': 'Failed to upload animation or generate signed URL',
-                        'details': str(upload_error)
-                    }), 500
-            return jsonify({'error': result['error']}), 500
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f'Failed to upload animation or generate signed URL: {str(upload_error)}'
+                    )
+            else:
+                raise HTTPException(status_code=500, detail=result['error'])
     
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.route('/validate', methods=['POST'])
-def validate_script():
+@app.post('/validate', response_model=ValidationResponse)
+async def validate_script(request: ScriptRequest):
     """Endpoint for validating a Blender script without executing it."""
-    if not request.content_type or 'application/json' not in request.content_type:
-        return jsonify({'error': 'Request must be JSON'}), 400
-    
-    try:
-        data = request.get_json()
-    except Exception:
-        return jsonify({'error': 'Invalid JSON format'}), 400
-    
-    # Get script from request
-    script = data.get('script')
-    
-    if not script:
-        return jsonify({'error': 'No script provided'}), 400
-    
     try:
         # Validate the script
         validator = BlenderScriptValidator()
-        validation_result = validator.validate_script(script)
+        validation_result = validator.validate_script(request.script)
         
         if not validation_result['valid']:
-            return jsonify({
-                'valid': False,
-                'error': validation_result['error']
-            }), 400
+            return ValidationResponse(
+                valid=False,
+                error=validation_result['error']
+            )
             
         # Basic syntax check - look for potential issues
         issues = []
         
         # Check for potential issues with camera creation
-        if 'bpy.data.objects.new(' in script:
-            camera_lines = [line for line in script.split('\n') 
+        if 'bpy.data.objects.new(' in request.script:
+            camera_lines = [line for line in request.script.split('\n') 
                            if 'bpy.data.objects.new(' in line and 'camera' in line.lower()]
             for line in camera_lines:
                 if line.count(',') > 1:  # More than one comma indicates potential issue
                     issues.append(f"Potential issue with camera creation: {line.strip()}")
         
-        return jsonify({
-            'valid': True,
-            'potential_issues': issues
-        })
+        return ValidationResponse(
+            valid=True,
+            message=f"Script validation passed. {len(issues)} potential issues found." if issues else "Script validation passed."
+        )
     
     except Exception as e:
         logger.error(f"Error validating script: {str(e)}")
-        return jsonify({
-            'valid': False,
-            'error': str(e)
-        }), 500
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Keep the original /generate endpoint for backward compatibility
-@app.route('/generate', methods=['POST'])
-def generate():
-    if not request.content_type or 'application/json' not in request.content_type:
-        return jsonify({'error': 'Request must be JSON'}), 400
-    
+@app.post('/generate')
+async def generate(request: ScriptRequest):
+    """Deprecated endpoint - use Vertex AI Reasoning Engine."""
+    raise HTTPException(
+        status_code=400,
+        detail='This endpoint is deprecated. Please use Vertex AI Reasoning Engine.'
+    )
+
+# MCP Integration
+async def run_mcp_server_background():
+    """Run MCP server in background"""
     try:
-        data = request.get_json()
-    except Exception:
-        return jsonify({'error': 'Invalid JSON format'}), 400
-        
-    prompt = data.get('prompt')
-    if not prompt:
-        return jsonify({'error': 'No prompt provided'}), 400
+        from mcp_server import mcp
+        from mcp.server.fastmcp.server import run_server
+        logger.info("Starting MCP server in background")
+        await run_server(mcp)
+    except Exception as e:
+        logger.error(f"Error running MCP server: {str(e)}")
+
+# SSE endpoint for agent communication
+@app.get('/mcp/stream')
+async def mcp_stream():
+    """Server-Sent Events endpoint for MCP agent communication"""
+    async def generate():
+        try:
+            # Send initial connection message
+            yield f"data: {json.dumps({'type': 'connection', 'status': 'connected', 'timestamp': datetime.datetime.utcnow().isoformat()})}\n\n"
+            
+            # Keep the connection alive and send periodic updates
+            while True:
+                # Send heartbeat
+                yield f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.datetime.utcnow().isoformat()})}\n\n"
+                await asyncio.sleep(30)  # Send heartbeat every 30 seconds
+                
+        except Exception as e:
+            logger.error(f"Error in MCP SSE stream: {str(e)}")
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
     
-    return jsonify({
-        'error': 'This endpoint is deprecated. Please use Vertex AI Reasoning Engine.'
-    }), 400
+    return StreamingResponse(generate(), media_type='text/event-stream')
+
+@app.get('/mcp/status', response_model=MCPStatusResponse)
+async def mcp_status():
+    """Get MCP server status"""
+    try:
+        # Test MCP server availability
+        return MCPStatusResponse(
+            mcp_available=True,
+            service="Animation MCP Server",
+            capabilities=[
+                "validate_blender_script",
+                "render_animation",
+                "get_animation_status",
+                "get_animation_template"
+            ],
+            blender_available=os.path.exists("/usr/local/blender/blender"),
+            bucket_configured=bool(os.getenv('GCS_BUCKET_NAME')),
+            timestamp=datetime.datetime.utcnow().isoformat()
+        )
+    except Exception as e:
+        return MCPStatusResponse(
+            mcp_available=False,
+            service="Animation MCP Server",
+            capabilities=[],
+            blender_available=False,
+            bucket_configured=False,
+            timestamp=datetime.datetime.utcnow().isoformat(),
+            error=str(e)
+        )
+
+@app.post('/mcp/validate', response_model=ValidationResponse)
+async def mcp_validate(request: ScriptRequest):
+    """MCP endpoint for script validation"""
+    try:
+        # Use the existing validator
+        validator = BlenderScriptValidator()
+        result = validator.validate_script(request.script)
+        
+        return ValidationResponse(
+            valid=result.get("valid", False),
+            error=result.get("error", ""),
+            message="Script validation completed via MCP endpoint"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in MCP validate endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post('/mcp/render', response_model=RenderResponse)
+async def mcp_render(request: ScriptRequest):
+    """MCP endpoint for animation rendering"""
+    try:
+        # Use existing validation and rendering logic
+        validator = BlenderScriptValidator()
+        validation_result = validator.validate_script(request.script)
+        
+        if not validation_result['valid']:
+            return RenderResponse(
+                success=False,
+                error=validation_result['error']
+            )
+        
+        # Render the animation
+        blender_runner = BlenderRunner()
+        gcs_uploader = GCSUploader(bucket)
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            script_path = os.path.join(temp_dir, 'animation.py')
+            output_path = os.path.join(temp_dir, 'animation.glb')
+            
+            with open(script_path, 'w') as f:
+                f.write(request.script)
+            
+            result = blender_runner.run_blender(script_path, output_path)
+            
+            if result['success']:
+                try:
+                    signed_url = gcs_uploader.upload_file_with_script(output_path, script_path)
+                    return RenderResponse(
+                        success=True,
+                        signed_url=signed_url,
+                        expiration="15 minutes"
+                    )
+                except Exception as upload_error:
+                    logger.error(f"Upload error in MCP render: {str(upload_error)}")
+                    return RenderResponse(
+                        success=False,
+                        error=f"Failed to upload animation: {str(upload_error)}"
+                    )
+            else:
+                return RenderResponse(
+                    success=False,
+                    error=result.get('error', 'Unknown rendering error')
+                )
+    
+    except Exception as e:
+        logger.error(f"Error in MCP render endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize MCP server on startup"""
+    logger.info("Starting Animation Service with MCP support")
+    
+    # Start MCP server in background
+    asyncio.create_task(run_mcp_server_background())
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+    uvicorn.run(app, host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))

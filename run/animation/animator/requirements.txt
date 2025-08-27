@@ -1,5 +1,6 @@
-flask>=2.3.3,<3.0.0
-werkzeug>=2.3.8  
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
 google-cloud-storage>=2.18.0,<3.0.0
-gunicorn>=21.2.0
 setuptools>=68.2.2
+mcp[cli]>=1.0.0
+pydantic>=2.4.0

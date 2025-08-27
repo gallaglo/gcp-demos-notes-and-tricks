@@ -2,6 +2,7 @@
 import os
 import json
 import requests
+import asyncio
 from typing import TypedDict, Dict, Any, List, Optional, Union
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langchain_google_vertexai import ChatVertexAI
@@ -10,6 +11,7 @@ from langgraph.prebuilt import ToolNode
 from google.auth.transport.requests import Request
 from google.oauth2 import id_token
 from prompts import BLENDER_PROMPT, CHAT_SYSTEM_PROMPT
+from mcp_client import AnimationMCPClient, get_mcp_client, MCPToolsRegistry
 import logging
 from functools import lru_cache
 from dotenv import load_dotenv
@@ -394,41 +396,41 @@ def generate_blender_script(state: AnimationState) -> AnimationState:
         }
 
 def render_animation(state: AnimationState) -> AnimationState:
-    """Send the script to Blender service for rendering."""
+    """Send the script to Blender service for rendering via MCP client."""
     if state.get("error"):
         return state
     
     try:
-        # Get ID token for Cloud Run authentication
-        token = get_id_token(BLENDER_SERVICE_URL)
+        # Use MCP client for rendering
+        async def async_render():
+            mcp_client = await get_mcp_client()
+            
+            # First validate the script
+            validation_response = await mcp_client.validate_script(state["blender_script"])
+            if not validation_response.success or not validation_response.data.get("valid", False):
+                return {
+                    "success": False,
+                    "error": validation_response.data.get("error", "Script validation failed") if validation_response.data else "Script validation failed"
+                }
+            
+            # Render the animation
+            return await mcp_client.render_animation(state["blender_script"], state["prompt"])
         
-        # Prepare request to Blender service
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json"
-        }
+        # Run the async function
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            mcp_response = loop.run_until_complete(async_render())
+        finally:
+            loop.close()
         
-        # The script is passed to your existing Cloud Run service
-        payload = {
-            "prompt": state["prompt"],
-            "script": state["blender_script"]
-        }
-        
-        # Log the first 200 characters of the script for debugging (avoid logging huge scripts)
+        # Log the first 200 characters of the script for debugging
         script_excerpt = state["blender_script"][:200] + "..." if len(state["blender_script"]) > 200 else state["blender_script"]
-        logger.info(f"Sending script to Blender service (excerpt): {script_excerpt}")
+        logger.info(f"Sending script to Blender service via MCP (excerpt): {script_excerpt}")
         
-        # Make the request to your Blender service
-        response = requests.post(
-            f"{BLENDER_SERVICE_URL}/render",
-            headers=headers,
-            json=payload,
-            timeout=300  # 5 minute timeout for rendering
-        )
-        
-        # Check for success
-        if response.status_code != 200:
-            error_message = f"Blender service error: {response.status_code} - {response.text}"
+        # Check MCP response
+        if not mcp_response.success:
+            error_message = f"MCP Blender service error: {mcp_response.error}"
             logger.error(error_message)
             
             # Add error message to history
@@ -443,8 +445,8 @@ def render_animation(state: AnimationState) -> AnimationState:
                 "history": updated_history
             }
         
-        # Parse response
-        result = response.json()
+        # Parse MCP response data
+        result = mcp_response.data or {}
         
         # Check for error in response
         if "error" in result and result["error"]:
@@ -487,6 +489,22 @@ def render_animation(state: AnimationState) -> AnimationState:
             "generation_status": "error",
             "history": updated_history
         }
+
+async def test_mcp_connection():
+    """Test the MCP connection to the animator service"""
+    try:
+        mcp_client = await get_mcp_client()
+        status_response = await mcp_client.get_status()
+        
+        if status_response.success:
+            logger.info(f"MCP connection successful: {status_response.data}")
+            return status_response.data
+        else:
+            logger.error(f"MCP connection failed: {status_response.error}")
+            return None
+    except Exception as e:
+        logger.error(f"Error testing MCP connection: {str(e)}")
+        return None
 
 def router(state: AnimationState) -> str:
     """Route to the next node based on state."""

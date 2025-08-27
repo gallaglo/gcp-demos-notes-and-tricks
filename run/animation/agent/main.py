@@ -5,7 +5,8 @@ from fastapi import FastAPI, HTTPException, Request, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-from animation_graph import run_animation_generation, AnimationState, Message
+from animation_graph import run_animation_generation, AnimationState, Message, test_mcp_connection
+from mcp_client import get_mcp_client, cleanup_mcp_client
 from dotenv import load_dotenv
 import logging
 from typing import Dict, Any, Optional, List, AsyncGenerator
@@ -25,6 +26,24 @@ if not os.environ.get("BLENDER_SERVICE_URL"):
     logger.warning("Example: export BLENDER_SERVICE_URL=https://animator-abc123-uc.a.run.app")
 
 app = FastAPI(title="Animation Generator API")
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize MCP connection on startup"""
+    logger.info("Starting up Animation Generator API with MCP support")
+    
+    # Test MCP connection
+    mcp_status = await test_mcp_connection()
+    if mcp_status:
+        logger.info("MCP connection established successfully")
+    else:
+        logger.warning("MCP connection failed - service will still work with legacy HTTP calls")
+
+@app.on_event("shutdown") 
+async def shutdown_event():
+    """Cleanup MCP connection on shutdown"""
+    logger.info("Shutting down Animation Generator API")
+    await cleanup_mcp_client()
 
 # Add improved CORS middleware
 app.add_middleware(
@@ -278,6 +297,23 @@ async def preflight_handler(request: Request):
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy"}
+
+@app.get("/mcp/status")
+async def mcp_status():
+    """Get MCP connection status"""
+    try:
+        mcp_status = await test_mcp_connection()
+        return {
+            "mcp_connection": "connected" if mcp_status else "disconnected",
+            "animator_service": mcp_status if mcp_status else "unavailable",
+            "agent_service": "healthy"
+        }
+    except Exception as e:
+        return {
+            "mcp_connection": "error", 
+            "error": str(e),
+            "agent_service": "healthy"
+        }
 
 if __name__ == "__main__":
     import uvicorn
