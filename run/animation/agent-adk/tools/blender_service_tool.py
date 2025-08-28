@@ -4,7 +4,7 @@ import requests
 from typing import Dict, Any
 from google.auth.transport.requests import Request
 from google.oauth2 import id_token
-from ..config import BLENDER_SERVICE_URL, REQUEST_TIMEOUT
+from config import BLENDER_SERVICE_URL, REQUEST_TIMEOUT
 
 logger = logging.getLogger(__name__)
 

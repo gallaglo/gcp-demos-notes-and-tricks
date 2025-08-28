@@ -1,6 +1,6 @@
 """Validation Agent for ADK Animation System"""
 from google.adk.agents import Agent
-from .tools.script_validator_tool import (
+from sub_agents.validation.tools.script_validator_tool import (
     validate_blender_script, 
     fix_common_script_issues, 
     get_validation_status

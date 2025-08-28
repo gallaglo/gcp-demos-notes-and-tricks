@@ -1,6 +1,6 @@
 """Storage Agent for ADK Animation System"""
 from google.adk.agents import Agent
-from .tools.gcs_upload_tool import upload_animation_to_gcs, get_storage_status
+from sub_agents.storage.tools.gcs_upload_tool import upload_animation_to_gcs, get_storage_status
 from config import GENAI_MODEL
 
 # Storage agent prompt template

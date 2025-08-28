@@ -1,7 +1,7 @@
 """Script Generation Agent for ADK Animation System"""
 from google.adk.agents import Agent, SequentialAgent
-from .tools.blender_script_tool import generate_blender_script, get_generated_script
-from ..validation.validation_agent import validation_agent
+from sub_agents.script_generation.tools.blender_script_tool import generate_blender_script, get_generated_script
+from sub_agents.validation.validation_agent import validation_agent
 from config import GENAI_MODEL
 from prompts.script_generation_prompt import SCRIPT_GENERATION_AGENT_PROMPT
 
