@@ -5,30 +5,32 @@
 ### Part 1: Exploring Dataset Metadata with INFORMATION_SCHEMA
 
 ```sql
--- Use INFORMATION_SCHEMA and ROLLUP to compute dataset statistics
+-- Use INFORMATION_SCHEMA.PARTITIONS and ROLLUP to compute dataset statistics
 SELECT
-  table_id,
-  ROUND(SUM(size_bytes)/POW(10,12),2) AS size_tb,
-  ROUND(SUM(row_count)/POW(10,9),2) AS billion_rows,
+  table_name AS table_id,
+  ROUND(SUM(total_rows)/POW(10,9),2) AS billion_rows,
   COUNT(DISTINCT partition_id) AS partition_count,
-  MIN(creation_time) AS oldest_partition_date,
-  MAX(creation_time) AS newest_partition_date
+  MIN(SAFE.PARSE_TIMESTAMP('%Y%m%d', partition_id)) AS oldest_partition_date,
+  MAX(SAFE.PARSE_TIMESTAMP('%Y%m%d', partition_id)) AS newest_partition_date
 FROM
-  `bigquery-public-data.wikipedia.__TABLES__`
+  `bigquery-public-data.wikipedia.INFORMATION_SCHEMA.PARTITIONS`
 WHERE 
-  table_id LIKE 'pageviews_201%'
+  table_name LIKE 'pageviews_201%'
+  AND partition_id != '__NULL__'
 GROUP BY 
-  ROLLUP(table_id)
+  ROLLUP(table_name)
 ORDER BY 
-  table_id;
+  table_name;
 ```
 
 **Key Points to Highlight:**
 
-- INFORMATION_SCHEMA provides metadata about tables without scanning the data itself
+- INFORMATION_SCHEMA.PARTITIONS provides partition-level metadata without scanning the data itself
 - ROLLUP creates multiple levels of aggregation (per table + grand total in final row)
 - This query is completely FREE to run (no bytes processed) since it only queries metadata
-- Note the size_tb and billion_rows columns showing the massive scale of the dataset
+- SAFE.PARSE_TIMESTAMP handles unparseable values gracefully by returning NULL
+- Note the billion_rows column showing the massive scale of the dataset
+- Filtering out `__NULL__` partition_id ensures we only analyze actual date partitions
 
 ### Part 2: Time Series Analysis with Wildcard Tables
 
