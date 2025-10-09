@@ -2,7 +2,7 @@
 
 This demo showcases two types of BigQuery views:
 
-1. **Standard View**: A virtual table defined by a SQL query (no physical storage)
+1. **Logical View**: A virtual table defined by a SQL query (no physical storage)
 2. **Materialized View**: Physically stores query results for improved performance
 
 ---
@@ -15,11 +15,11 @@ This demo showcases two types of BigQuery views:
 
 ---
 
-## Standard Views
+## Logical Views
 
-### What is a Standard View?
+### What is a Logical View?
 
-A standard view is a virtual table defined by a SQL query. It doesn't store data physically - the query is executed every time the view is accessed.
+A [logical view](https://cloud.google.com/bigquery/docs/views-intro) is a virtual table defined by a SQL query. It doesn't store data physically - the query is executed every time the view is accessed.
 
 ### When to Use
 
@@ -51,7 +51,7 @@ GROUP BY
   end_station_name;
 ```
 
-### Querying the Standard View
+### Querying the Logical View
 
 ```sql
 SELECT * 
@@ -67,7 +67,7 @@ LIMIT 10;
 
 ### What is a Materialized View?
 
-A materialized view physically stores the query results and periodically refreshes them. It provides significantly better query performance for expensive aggregations.
+A [materialized view](https://cloud.google.com/bigquery/docs/materialized-views-intro) physically stores the query results and periodically refreshes them. It provides significantly better query performance for expensive aggregations.
 
 ### When to Use
 
@@ -78,10 +78,10 @@ A materialized view physically stores the query results and periodically refresh
 
 ### Important Restrictions
 
-❌ No `COUNT(DISTINCT)` - use approximate functions or calculate at query time
-❌ No scalar transformations in SELECT (`ROUND()`, division, etc.)
-❌ Must output **raw aggregation results**
-❌ Cannot reference tables from other projects/organizations
+- ❌ No `COUNT(DISTINCT)` - use approximate functions or calculate at query time
+- ❌ No scalar transformations in SELECT (`ROUND()`, division, etc.)
+- ❌ Must output **raw aggregation results**
+- ❌ Cannot reference tables from other projects/organizations
 
 ### Setup: Copy Data to Your Project
 
