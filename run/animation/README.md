@@ -1,5 +1,9 @@
 # Animation Generator
 
+> **Archived** — This app has been superseded by [threejs-scene-agents](https://github.com/gallaglo/threejs-scene-agents), which generates Three.js scenes directly instead of using Blender. Three.js generation is faster and lighter weight. This directory is kept for reference only and is no longer actively maintained.
+>
+> This project explored some interesting ideas around LLM-driven code generation and multi-service orchestration. At the time it was built, tooling like [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) wasn't yet available — MCP would have been a more natural fit for wiring up the agent-to-service communication that was hand-rolled here.
+
 Containerized web application that generates animations based on user prompts using [Gemini 2.0](https://cloud.google.com/vertex-ai/generative-ai/docs/gemini-v2) (LLM) and [Blender](https://www.blender.org/).
 
 ![Animation Generator](animation-app.gif)
